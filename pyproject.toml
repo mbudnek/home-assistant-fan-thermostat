@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fan-thermostat"
+version = "1.0.0"
+description = "A Home Assistant custom component for controlling ceiling fans based on temperature and motion"
+readme = "README.md"
+license = {text = "GPL-3.0-only"}
+requires-python = ">=3.12"
+
+[project.urls]
+"Homepage" = "https://github.com/mbudnek/fan-thermostat"
+"Bug Tracker" = "https://github.com/mbudnek/fan-thermostat/issues"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+pythonpath = ["."]
+ha_test_config_dir = "testing_config"
+addopts = "-p no:respx"
+timeout = 5

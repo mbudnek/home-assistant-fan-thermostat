@@ -1,0 +1,5 @@
+# Test dependencies for Fan Thermostat
+pytest>=7.0.0
+pytest-homeassistant>=2026.11.0
+syrupy>=6.0.0
+pytest-timeout>=2.4.0

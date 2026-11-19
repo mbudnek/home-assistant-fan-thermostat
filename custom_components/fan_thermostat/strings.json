@@ -1,0 +1,64 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Add Fan Thermostat",
+        "data": {
+          "name": "Name",
+          "temperature_sensors": "Temperature Sensors",
+          "fan_controllers": "Fan Controllers",
+          "motion_sensors": "Motion Sensors (optional)",
+          "switches": "Switches (optional)"
+        },
+        "data_description": {
+          "name": "Name for this thermostat instance",
+          "temperature_sensors": "Select one or more temperature sensors",
+          "fan_controllers": "Select one or more fan controllers",
+          "motion_sensors": "Select motion sensors to enable motion-based control",
+          "switches": "Select on/off switches to control"
+        }
+      }
+    },
+    "error": {
+      "no_temp_sensors": "At least one temperature sensor is required.",
+      "no_fan_or_switch": "At least one fan controller or switch is required."
+    },
+    "abort": {
+      "already_configured": "This fan thermostat is already configured."
+    }
+  },
+  "entity": {
+    "climate": {
+      "fan_thermostat": {
+        "name": "{name}",
+        "state_attributes": {
+          "hvac_mode": {
+            "state": {
+              "off": "Off",
+              "cool": "Cool"
+            }
+          }
+        }
+      }
+    },
+    "switch": {
+      "manual_override": {
+        "name": "Manual Override"
+      }
+    },
+    "number": {
+      "retrigger_time": {
+        "name": "Retrigger Time",
+        "state": "{value} s"
+      },
+      "motion_timeout": {
+        "name": "Motion Timeout",
+        "state": "{value} s"
+      },
+      "manual_override_time": {
+        "name": "Manual Override Time",
+        "state": "{value} s"
+      }
+    }
+  }
+}
