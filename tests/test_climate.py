@@ -1,9 +1,14 @@
 """Tests for the Fan Thermostat climate platform."""
 
+from datetime import timedelta
 from unittest.mock import patch
 
 import pytest
-from pytest_homeassistant.common import MockConfigEntry
+from pytest_homeassistant.common import (
+    MockConfigEntry,
+    async_fire_time_changed,
+    mock_restore_cache,
+)
 
 from homeassistant.components.climate import (
     ATTR_HVAC_MODE,
@@ -27,6 +32,7 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant, State
 from homeassistant.helpers import entity_registry as er
 from homeassistant.setup import async_setup_component
+from homeassistant.util import dt as dt_util
 
 from . import setup_integration
 
@@ -41,7 +47,7 @@ async def test_climate_entity_exists(
 
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
     assert climate_state is not None
-    assert climate_state.state == HVACMode.COOL
+    assert climate_state.state == HVACMode.FAN_ONLY
 
     # Check entity registry
     entity_entry = entity_registry.async_get("climate.bedroom_fan_thermostat")
@@ -58,7 +64,7 @@ async def test_climate_hvac_modes(
 
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
     assert HVACMode.OFF in climate_state.attributes["hvac_modes"]
-    assert HVACMode.COOL in climate_state.attributes["hvac_modes"]
+    assert HVACMode.FAN_ONLY in climate_state.attributes["hvac_modes"]
 
 
 
@@ -71,18 +77,18 @@ async def test_climate_initial_state(
     await setup_integration(hass, mock_config_entry)
 
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
-    assert climate_state.state == HVACMode.COOL
-    # hvac_action is IDLE because temp sensor not set yet, so percentage=0 and mode=COOL
+    assert climate_state.state == HVACMode.FAN_ONLY
+    # hvac_action is IDLE because temp sensor not set yet, so percentage=0 and mode=FAN_ONLY
     assert climate_state.attributes["hvac_action"] == HVACAction.IDLE
     assert climate_state.attributes["target_temp_low"] == 72.0
     assert climate_state.attributes["target_temp_high"] == 78.0
 
 
-async def test_set_hvac_mode_cool(
+async def test_set_hvac_mode_fan_only(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
 ) -> None:
-    """Test setting HVAC mode to cool."""
+    """Test setting HVAC mode to fan_only."""
     await setup_integration(hass, mock_config_entry)
 
     await hass.services.async_call(
@@ -90,13 +96,13 @@ async def test_set_hvac_mode_cool(
         SERVICE_SET_HVAC_MODE,
         {
             ATTR_ENTITY_ID: "climate.bedroom_fan_thermostat",
-            ATTR_HVAC_MODE: HVACMode.COOL,
+            ATTR_HVAC_MODE: HVACMode.FAN_ONLY,
         },
         blocking=True,
     )
 
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
-    assert climate_state.state == HVACMode.COOL
+    assert climate_state.state == HVACMode.FAN_ONLY
 
 
 async def test_set_hvac_mode_off(
@@ -273,7 +279,7 @@ async def test_motion_sensor_turns_fan_off(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
 ) -> None:
-    """Test that motion sensors turn the fan off when inactive."""
+    """Test that motion sensors turn the fan off after the motion timeout."""
     await setup_integration(hass, mock_config_entry)
 
     # Set temperature above setpoint
@@ -285,10 +291,17 @@ async def test_motion_sensor_turns_fan_off(
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
     assert climate_state.attributes.get("percentage") == 100
 
-    # Motion sensor becomes inactive
+    # Motion sensor becomes inactive: the fan stays on until the timeout elapses
     hass.states.async_set(
         "binary_sensor.bedroom_motion", "inactive", {"device_class": "motion"}
     )
+
+    climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state.attributes.get("percentage") == 100
+
+    # After the motion timeout (300s) elapses, the fan turns off
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=301))
+    await hass.async_block_till_done()
 
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
     assert climate_state.attributes.get("percentage") is None
@@ -306,13 +319,13 @@ async def test_motion_sensor_turns_fan_on(
         "sensor.bedroom_temp", 85.0, {"device_class": "temperature"}
     )
 
-    # Motion sensor becomes inactive (turns fan off)
+    # Motion sensor becomes inactive: the fan stays on for the motion timeout
     hass.states.async_set(
         "binary_sensor.bedroom_motion", "inactive", {"device_class": "motion"}
     )
 
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
-    assert climate_state.attributes.get("percentage") is None
+    assert climate_state.attributes.get("percentage") == 100
 
     # Motion sensor becomes active again
     hass.states.async_set(
@@ -409,6 +422,7 @@ async def test_turn_off(
 
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
     assert climate_state.attributes.get("percentage") is None
+    assert climate_state.state == HVACMode.OFF
 
 
 async def test_switches_controlled(
@@ -418,10 +432,10 @@ async def test_switches_controlled(
     """Test that switches are controlled when fans would be controlled."""
     await setup_integration(hass, mock_config_entry_with_switches)
 
-    # Verify climate entity exists and is in COOL mode
+    # Verify climate entity exists and is in FAN_ONLY mode
     climate_state = hass.states.get("climate.box_fan_thermostat")
     assert climate_state is not None
-    assert climate_state.state == HVACMode.COOL
+    assert climate_state.state == HVACMode.FAN_ONLY
 
     # Set temperature above target_high (78.0) so the fan should turn on at 100%
     hass.states.async_set(
@@ -498,25 +512,25 @@ async def test_climate_hvac_action(
     """Test that the climate entity reports the correct HVAC action."""
     await setup_integration(hass, mock_config_entry)
 
-    # Initially, no temperature set yet, mode=COOL so action is IDLE (not OFF since we're not in OFF mode)
+    # Initially, no temperature set yet, mode=FAN_ONLY so action is IDLE (not OFF since we're not in OFF mode)
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
     assert climate_state.attributes["hvac_action"] == HVACAction.IDLE
 
-    # Set temperature above target_high (78.0) -> fan runs at 100%, action is COOLING
+    # Set temperature above target_high (78.0) -> fan runs at 100%, action is FAN
     hass.states.async_set(
         "sensor.bedroom_temp", 85.0, {"device_class": "temperature"}
     )
 
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
-    assert climate_state.attributes["hvac_action"] == HVACAction.COOLING
+    assert climate_state.attributes["hvac_action"] == HVACAction.FAN
 
-    # Set temperature at target_high (78.0) -> fan still runs at 100%, action is COOLING
+    # Set temperature at target_high (78.0) -> fan still runs at 100%, action is FAN
     hass.states.async_set(
         "sensor.bedroom_temp", 78.0, {"device_class": "temperature"}
     )
 
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
-    assert climate_state.attributes["hvac_action"] == HVACAction.COOLING
+    assert climate_state.attributes["hvac_action"] == HVACAction.FAN
     
     # Set temperature below target_low (72.0) -> fan off, action is IDLE
     hass.states.async_set(
@@ -548,3 +562,127 @@ async def test_climate_min_max_temp(
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
     assert climate_state.attributes["min_temp"] == 45
     assert climate_state.attributes["max_temp"] == 95
+
+
+async def test_fan_service_calls_are_made(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Test that fan controllers receive set_percentage service calls."""
+    recorded = []
+
+    async def _handle_set_percentage(call):
+        recorded.append(("set_percentage", call.data.get("entity_id"), call.data.get("percentage")))
+
+    hass.services.async_register("fan", "set_percentage", _handle_set_percentage)
+
+    await setup_integration(hass, mock_config_entry)
+
+    hass.states.async_set(
+        "sensor.bedroom_temp", 85.0, {"device_class": "temperature"}
+    )
+    await hass.async_block_till_done()
+
+    assert ("set_percentage", "fan.bedroom_fan", 100) in recorded
+
+
+async def test_retrigger_time_blocks_fan_restart(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Test that retrigger time blocks the fan from restarting after the motion timeout."""
+    await setup_integration(hass, mock_config_entry)
+
+    # Set temperature above setpoint: fan at 100%
+    hass.states.async_set(
+        "sensor.bedroom_temp", 85.0, {"device_class": "temperature"}
+    )
+    climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state.attributes.get("percentage") == 100
+
+    # Motion stops
+    hass.states.async_set(
+        "binary_sensor.bedroom_motion", "inactive", {"device_class": "motion"}
+    )
+    await hass.async_block_till_done()
+
+    # Stay-on window: fan still on
+    climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state.attributes.get("percentage") == 100
+
+    # Motion timeout elapses: fans off, retrigger lockout starts
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=301))
+    await hass.async_block_till_done()
+
+    climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state.attributes.get("percentage") is None
+
+    # Motion re-detected during the retrigger window: fan still off
+    hass.states.async_set(
+        "binary_sensor.bedroom_motion", "active", {"device_class": "motion"}
+    )
+    await hass.async_block_till_done()
+
+    climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state.attributes.get("percentage") is None
+
+    # Retrigger window elapses: fan turns back on
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=302))
+    await hass.async_block_till_done()
+
+    climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state.attributes.get("percentage") == 100
+
+
+async def test_restore_unavailable_state_does_not_crash(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Test that an unavailable last state is restored as FAN_ONLY instead of crashing."""
+    mock_restore_cache(
+        hass, [State("climate.bedroom_fan_thermostat", "unavailable")]
+    )
+
+    await setup_integration(hass, mock_config_entry)
+
+    climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
+    assert climate_state.state == HVACMode.FAN_ONLY
+
+
+async def test_external_change_enters_manual_override(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Test that external fan/switch changes trigger manual override; self-initiated changes do not."""
+
+    async def _handle_set_percentage(call):
+        hass.states.async_set(
+            call.data["entity_id"], "on", {"percentage": call.data["percentage"]}
+        )
+
+    hass.services.async_register("fan", "set_percentage", _handle_set_percentage)
+
+    await setup_integration(hass, mock_config_entry)
+
+    # Temperature event: thermostat drives the fan itself (self-initiated)
+    hass.states.async_set(
+        "sensor.bedroom_temp", 85.0, {"device_class": "temperature"}
+    )
+    await hass.async_block_till_done()
+
+    switch_state = hass.states.get(
+        "switch.bedroom_fan_thermostat_manual_override"
+    )
+    assert switch_state is not None
+    # Self-initiated change must NOT trigger manual override
+    assert switch_state.state == STATE_OFF
+
+    # External change to the fan drives the thermostat into manual override
+    hass.states.async_set("fan.bedroom_fan", "off", {"percentage": 0})
+    await hass.async_block_till_done()
+
+    switch_state = hass.states.get(
+        "switch.bedroom_fan_thermostat_manual_override"
+    )
+    assert switch_state.state == STATE_ON

@@ -16,7 +16,6 @@ from homeassistant.const import ATTR_TEMPERATURE, PRECISION_TENTHS, UnitOfTemper
 from homeassistant.core import HomeAssistant, State, callback
 from homeassistant.helpers.event import async_call_later, async_track_state_change_event
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
-from homeassistant.helpers.entity_registry import async_get as async_get_entity_registry
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import (
@@ -28,6 +27,8 @@ from .const import (
     DOMAIN,
     get_device_info,
 )
+
+from .controller import FanThermostatController
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -85,7 +86,7 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
     """
 
     _attr_name = None
-    _attr_hvac_modes = [HVACMode.OFF, HVACMode.COOL]
+    _attr_hvac_modes = [HVACMode.OFF, HVACMode.FAN_ONLY]
     _attr_preset_modes = None
     _attr_native_temperature_unit = UnitOfTemperature.FAHRENHEIT
     _attr_min_temp = 45
@@ -137,14 +138,16 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
         self._switch_ids = switch_ids
 
         # Internal state
-        self._hvac_mode: HVACMode = HVACMode.COOL
+        self._hvac_mode: HVACMode = HVACMode.FAN_ONLY
         self._fan_percentage: int | None = None
         self._manual_override_active: bool = False
-        self._motion_active: bool = True
-        self._last_motion_time: float | None = None
+        self._motion_active: bool = False
+        self._motion_sensor_active: bool = False
         self._retrigger_cancel: Callable[[], None] | None = None
         self._manual_override_cancel: Callable[[], None] | None = None
         self._motion_cancel: Callable[[], None] | None = None
+        # Self-initiated service call tracking: entity_id -> (expected_state, percentage)
+        self._self_initiated: dict[str, tuple[str, float | None]] = {}
 
         # Temperature tracking
         self._current_temperature: float | None = None
@@ -169,13 +172,17 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
         if self._hvac_mode == HVACMode.OFF:
             return HVACAction.OFF
         if self._fan_percentage is not None and self._fan_percentage > 0:
-            return HVACAction.COOLING
-        # Fan is off but mode is COOL - within target range, so IDLE
+            return HVACAction.FAN
+        # Fan is off but mode is FAN_ONLY - within target range, so IDLE
         return HVACAction.IDLE
 
     @property
     def percentage(self) -> int | None:
         return self._fan_percentage
+
+    @property
+    def manual_override_active(self) -> bool:
+        return self._manual_override_active
 
     @property
     def is_on(self) -> bool:
@@ -249,22 +256,38 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
         """When entity is added to hass."""
         await super().async_added_to_hass()
 
+        # Register with the shared controller. Platforms are set up concurrently,
+        # so the switch may be added before (or after) this entity.
+        controller = self._get_controller()
+        if controller is not None:
+            controller.climate = self
+            # If the switch was already registered and is on, resume manual override.
+            if controller.switch is not None and controller.switch.is_on:
+                self.enter_manual_override()
+
         # Restore last state
         last_state = await self.async_get_last_state()
         if last_state is not None:
-            self._hvac_mode = HVACMode(last_state.state) if last_state.state else HVACMode.COOL
-            # Restore target temperature range from previous state
-            saved_low = last_state.attributes.get("target_temp_low")
-            if saved_low is not None:
-                self._target_temp_low = float(saved_low)
-            saved_high = last_state.attributes.get("target_temp_high")
-            if saved_high is not None:
-                self._target_temp_high = float(saved_high)
-            # Restore fan percentage from previous state
-            saved_percentage = last_state.attributes.get("percentage")
-            if saved_percentage is not None:
-                # Use round() to avoid truncation of float values like 50.5 -> 50
-                self._fan_percentage = round(float(saved_percentage))
+            try:
+                self._hvac_mode = HVACMode(last_state.state) if last_state.state else HVACMode.FAN_ONLY
+            except ValueError:
+                # Unavailable/unknown/invalid state at shutdown - fall back to FAN_ONLY
+                self._hvac_mode = HVACMode.FAN_ONLY
+            try:
+                # Restore target temperature range from previous state
+                saved_low = last_state.attributes.get("target_temp_low")
+                if saved_low is not None:
+                    self._target_temp_low = float(saved_low)
+                saved_high = last_state.attributes.get("target_temp_high")
+                if saved_high is not None:
+                    self._target_temp_high = float(saved_high)
+                # Restore fan percentage from previous state
+                saved_percentage = last_state.attributes.get("percentage")
+                if saved_percentage is not None:
+                    # Use round() to avoid truncation of float values like 50.5 -> 50
+                    self._fan_percentage = round(float(saved_percentage))
+            except (TypeError, ValueError):
+                pass
 
         # Subscribe to temperature sensors
         for sensor_id in self._temperature_sensor_ids:
@@ -298,9 +321,6 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
                 )
             )
 
-        # Subscribe to the manual override switch entity
-        self._subscribe_to_override_switch()
-
         # Initialize motion state from current sensor readings
         self._update_motion_state()
         
@@ -309,32 +329,15 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
         self._control_fans()
         self.async_write_ha_state()
 
-    def _subscribe_to_override_switch(self) -> None:
-        """Subscribe to the manual override switch entity state changes."""
-        # Use a try/except in case the registry isn't fully loaded yet.
-        # This can happen during setup when async_get creates an unloaded instance.
-        override_entity_id = None
-        try:
-            entity_registry = async_get_entity_registry(self.hass)
-            for entity in entity_registry.entities.values():
-                if (
-                    entity.platform == "fan_thermostat"
-                    and entity.unique_id is not None
-                    and entity.unique_id.endswith("_override")
-                    and self._config_entry.entry_id in entity.unique_id
-                ):
-                    override_entity_id = entity.entity_id
-                    break
-        except AttributeError:
-            # Entity registry may not be loaded yet during early setup
-            pass
-        
-        if override_entity_id is not None:
-            self.async_on_remove(
-                async_track_state_change_event(
-                    self.hass, {override_entity_id}, self._on_override_switch_changed
-                )
-            )
+    def _get_controller(self) -> "FanThermostatController | None":
+        """Return the shared controller for this config entry, if available."""
+        data = self.hass.data.get(DOMAIN)
+        if not isinstance(data, dict):
+            return None
+        controller = data.get(self._config_entry.entry_id)
+        if isinstance(controller, FanThermostatController):
+            return controller
+        return None
 
     @callback
     def _on_state_changed(self, event) -> None:
@@ -360,20 +363,6 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
             self._handle_external_change(entity_id, new_state)
             self.async_write_ha_state()
 
-    @callback
-    def _on_override_switch_changed(self, event) -> None:
-        """Handle manual override switch state changes."""
-        new_state = event.data.get("new_state")
-        if new_state is None:
-            return
-        if new_state.state == "on":
-            self._manual_override_active = True
-            self._schedule_manual_override_timer()
-        else:
-            self._manual_override_active = False
-            self._cancel_manual_override_timer()
-            self._control_fans()
-
     def _update_current_temperature(self) -> None:
         """Update current temperature from all configured sensors."""
         temperatures = []
@@ -397,36 +386,69 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
             self._current_temperature = None
 
     def _update_motion_state(self) -> None:
-        """Update the motion state from configured motion sensors."""
+        """Update the motion state from configured motion sensors.
+
+        Fans stay on for ``motion_timeout`` seconds after motion stops; after
+        that the motion gate closes. A motion sensor transition from inactive
+        to active cancels the stay-on window. If motion sensors are configured
+        but no motion has ever been detected, the gate stays closed.
+        """
         if not self._motion_sensor_ids:
             self._motion_active = True
             return
+
         motion = False
         for sensor_id in self._motion_sensor_ids:
             state = self.hass.states.get(sensor_id)
             if state is not None and state.state in ("on", "active", "home"):
                 motion = True
-                self._last_motion_time = self.hass.loop.time()
                 break
-        self._motion_active = motion
-        if motion or self._motion_timeout == 0:
-            self._cancel_motion_timer()
-        else:
-            if self._motion_cancel is None:
-                self._schedule_motion_inactive_timer()
 
-    def _schedule_motion_inactive_timer(self) -> None:
-        """Schedule a timer to mark motion as inactive after the timeout."""
-        if self._motion_timeout > 0 and self._motion_cancel is None:
-            self._cancel_motion_timer()
-            self._motion_cancel = async_call_later(
-                self.hass, self._motion_timeout, self._set_motion_inactive_callback
-            )
+        if motion:
+            if not self._motion_sensor_active:
+                # Motion resumed after a stop: cancel the stay-on window.
+                self._cancel_motion_timer()
+            self._motion_sensor_active = True
+            self._motion_active = True
+            return
+
+        if self._motion_sensor_active:
+            # Transition: motion just stopped.
+            self._motion_sensor_active = False
+            if self._motion_timeout > 0 and self._motion_cancel is None:
+                # Keep the fans on until the timeout elapses.
+                self._motion_active = True
+                self._motion_cancel = async_call_later(
+                    self.hass,
+                    self._motion_timeout,
+                    self._handle_motion_timeout_elapsed,
+                )
+            else:
+                self._motion_active = False
+            return
+
+        # No transition (already inactive, possibly never active): keep the gate as-is.
 
     @callback
-    def _set_motion_inactive_callback(self, _time) -> None:
-        """Set motion to inactive and update state."""
+    def _handle_motion_timeout_elapsed(self, _time) -> None:
+        """Motion has been inactive for the configured timeout."""
+        self._motion_cancel = None
         self._motion_active = False
+        if self._retrigger_time > 0:
+            # Lock the fan off until the retrigger window elapses.
+            self._cancel_retrigger_timer()
+            self._retrigger_cancel = async_call_later(
+                self.hass,
+                self._retrigger_time,
+                self._handle_retrigger_elapsed,
+            )
+        self._control_fans()
+        self.async_write_ha_state()
+
+    @callback
+    def _handle_retrigger_elapsed(self, _time) -> None:
+        """Retrigger window elapsed: fans may turn back on if motion and temperature warrant."""
+        self._retrigger_cancel = None
         self._control_fans()
         self.async_write_ha_state()
 
@@ -453,13 +475,16 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
 
         # 3. Motion check
         if self._motion_sensor_ids:
+            if self._retrigger_cancel is not None:
+                # Still in the retrigger window: fans must remain off even if
+                # motion is re-detected or temperature warrants it.
+                self._fan_percentage = None
+                self._set_all_fans_off()
+                return
             if not self._motion_active:
-                if self._retrigger_cancel is not None:
-                    pass  # Still in retrigger window, keep fans on
-                else:
-                    self._fan_percentage = None
-                    self._set_all_fans_off()
-                    return
+                self._fan_percentage = None
+                self._set_all_fans_off()
+                return
 
         # 4. Temperature check - only when current temp is known
         if self._current_temperature is None:
@@ -504,63 +529,45 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
         percentage = (deviation / range_size) * 100
         return round(max(0, min(100, percentage)))
 
-    def _set_all_fans_on(self, percentage: int) -> None:
-        """Set all fan controllers to the given percentage.
-        
-        If there are no fan controllers but there are switches, turn them on instead.
+    def _call_service(self, domain: str, service: str, data: dict[str, Any]) -> None:
+        """Fire-and-forget a service call.
+
+        Failures are logged, never silently swallowed, and never propagated
+        into the caller (fan control must not take down the thermostat).
         """
-        if self._fan_controller_ids:
-            for fan_id in self._fan_controller_ids:
-                if self.hass.states.get(fan_id) is not None:
-                    try:
-                        # Use async service call to avoid blocking during entity setup
-                        asyncio.create_task(
-                            self.hass.services.async_call(
-                                "fan", "set_percentage",
-                                {"entity_id": fan_id, "percentage": percentage},
-                            )
-                        )
-                    except Exception:  # noqa: S110 - service call may fail for fake/test entities
-                        pass
-        elif self._switch_ids:
-            for sw_id in self._switch_ids:
-                if self.hass.states.get(sw_id) is not None:
-                    try:
-                        asyncio.create_task(
-                            self.hass.services.async_call(
-                                "switch", "turn_on",
-                                {"entity_id": sw_id},
-                            )
-                        )
-                    except Exception:  # noqa: S110 - service call may fail for fake/test entities
-                        pass
+        async def _call() -> None:
+            try:
+                await self.hass.services.async_call(domain, service, data)
+            except Exception as err:  # noqa: BLE001 - log and continue
+                _LOGGER.warning(
+                    "Failed to call %s.%s for %s: %s",
+                    domain, service, data.get("entity_id"), err,
+                )
+
+        self._config_entry.async_create_task(
+            self.hass, _call(), name=f"fan_thermostat.{service}.{data.get('entity_id')}"
+        )
+
+    def _set_all_fans_on(self, percentage: int) -> None:
+        """Set all fan controllers to the given percentage and turn on all switches."""
+        for fan_id in self._fan_controller_ids:
+            self._self_initiated[fan_id] = ("on", float(percentage))
+            self._call_service(
+                "fan", "set_percentage",
+                {"entity_id": fan_id, "percentage": percentage},
+            )
+        for sw_id in self._switch_ids:
+            self._self_initiated[sw_id] = ("on", None)
+            self._call_service("switch", "turn_on", {"entity_id": sw_id})
 
     def _set_all_fans_off(self) -> None:
         """Turn off all fan controllers and switches."""
-        if self._fan_controller_ids:
-            for fan_id in self._fan_controller_ids:
-                if self.hass.states.get(fan_id) is not None:
-                    try:
-                        asyncio.create_task(
-                            self.hass.services.async_call(
-                                "fan", "turn_off",
-                                {"entity_id": fan_id},
-                            )
-                        )
-                    except Exception:  # noqa: S110 - service call may fail for fake/test entities
-                        pass
-        if self._switch_ids:
-            for sw_id in self._switch_ids:
-                if self.hass.states.get(sw_id) is not None:
-                    try:
-                        asyncio.create_task(
-                            self.hass.services.async_call(
-                                "switch", "turn_off",
-                                {"entity_id": sw_id},
-                            )
-                        )
-                    except Exception:  # noqa: S110 - service call may fail for fake/test entities
-                        pass
+        for fan_id in self._fan_controller_ids:
+            self._self_initiated[fan_id] = ("off", None)
+            self._call_service("fan", "turn_off", {"entity_id": fan_id})
+        for sw_id in self._switch_ids:
+            self._self_initiated[sw_id] = ("off", None)
+            self._call_service("switch", "turn_off", {"entity_id": sw_id})
 
     def _handle_external_change(self, entity_id: str, new_state: State) -> None:
         """Handle changes to fan controllers or switches from external sources.
@@ -568,14 +575,49 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
         When an external source (wall switch, automation, etc.) toggles a fan/switch,
         this triggers manual override mode to prevent the thermostat from fighting 
         with the user's intent. A notification is logged for visibility.
+        Changes initiated by the thermostat itself (tracked in _self_initiated)
+        are ignored.
         """
-        if entity_id in self._fan_controller_ids or entity_id in self._switch_ids:
-            _LOGGER.info(
-                "External change detected on %s - entering manual override mode",
-                entity_id
-            )
-            self._manual_override_active = True
-            self._schedule_manual_override_timer()
+        if entity_id not in self._fan_controller_ids and entity_id not in self._switch_ids:
+            return
+
+        expected = self._self_initiated.get(entity_id)
+        if expected is not None:
+            expected_state, expected_pct = expected
+            if new_state.state == expected_state:
+                if expected_pct is None:
+                    return
+                reported_pct = new_state.attributes.get("percentage")
+                if reported_pct is None or float(reported_pct) == float(expected_pct):
+                    return
+
+        self._self_initiated.pop(entity_id, None)
+        _LOGGER.info(
+            "External change detected on %s - entering manual override mode",
+            entity_id
+        )
+        self.enter_manual_override()
+
+    def enter_manual_override(self) -> None:
+        """Enter manual override mode and stop automatic control."""
+        self._manual_override_active = True
+        self._schedule_manual_override_timer()
+        self._sync_override_switch(True)
+        self.async_write_ha_state()
+
+    def exit_manual_override(self) -> None:
+        """Exit manual override mode and resume automatic control."""
+        self._manual_override_active = False
+        self._cancel_manual_override_timer()
+        self._control_fans()
+        self.async_write_ha_state()
+
+    def _sync_override_switch(self, on: bool) -> None:
+        """Push the manual override state to the override switch entity."""
+        controller = self._get_controller()
+        if controller is None or controller.switch is None:
+            return
+        controller.switch.sync_state(on)
 
     def _schedule_manual_override_timer(self) -> None:
         """Schedule the automatic clear of manual override."""
@@ -591,6 +633,7 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
         """Clear the manual override and resume automatic control."""
         self._manual_override_active = False
         self._manual_override_cancel = None
+        self._sync_override_switch(False)
         self._control_fans()
         self.async_write_ha_state()
 
@@ -606,13 +649,20 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
             self._motion_cancel()
             self._motion_cancel = None
 
+    def _cancel_retrigger_timer(self) -> None:
+        """Cancel the retrigger timer."""
+        if self._retrigger_cancel is not None:
+            self._retrigger_cancel()
+            self._retrigger_cancel = None
+
     async def async_will_remove_from_hass(self) -> None:
         """When entity will be removed from hass, cancel all timers."""
         self._cancel_manual_override_timer()
         self._cancel_motion_timer()
-        if self._retrigger_cancel is not None:
-            self._retrigger_cancel()
-            self._retrigger_cancel = None
+        self._cancel_retrigger_timer()
+        controller = self._get_controller()
+        if controller is not None and controller.climate is self:
+            controller.climate = None
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         """Set the HVAC mode."""
@@ -639,28 +689,3 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
         self._control_fans()
         self.async_write_ha_state()
 
-    async def async_turn_on(self, **kwargs: Any) -> None:
-        """Turn on the thermostat to enable automatic fan control.
-        
-        The fans will run at a speed determined by the current temperature relative
-        to the target setpoints (target_temp_low and target_temp_high). If the room
-        is already within or below the target range, the fans will remain off (0%).
-        """
-        if self._hvac_mode == HVACMode.OFF:
-            return
-
-        percentage = self._calculate_percentage()
-
-        self._fan_percentage = percentage
-        if percentage > 0:
-            self._set_all_fans_on(percentage)
-        else:
-            self._set_all_fans_off()
-
-        self.async_write_ha_state()
-
-    async def async_turn_off(self, **kwargs: Any) -> None:
-        """Turn off the fan."""
-        self._fan_percentage = None
-        self._set_all_fans_off()
-        self.async_write_ha_state()

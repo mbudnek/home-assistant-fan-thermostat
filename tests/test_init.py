@@ -17,7 +17,7 @@ async def test_setup_entry(
     # Check that the climate entity was set up
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
     assert climate_state is not None
-    assert climate_state.state == "cool"
+    assert climate_state.state == "fan_only"
 
     # Check that the switch entity was set up
     switch_state = hass.states.get("switch.bedroom_fan_thermostat_manual_override")
