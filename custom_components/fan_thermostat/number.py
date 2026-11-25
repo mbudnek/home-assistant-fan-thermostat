@@ -5,6 +5,7 @@ from typing import Any
 
 from homeassistant.components.number import NumberEntity, NumberMode
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -65,6 +66,7 @@ class FanThermostatNumberEntity(NumberEntity):
 
     _attr_mode = NumberMode.BOX
     _attr_has_entity_name = True
+    _attr_native_unit_of_measurement = UnitOfTime.SECONDS
 
     def __init__(
         self,
