@@ -64,7 +64,8 @@ class FanThermostatNumberEntity(NumberEntity):
     """Representation of a configuration number entity."""
 
     _attr_mode = NumberMode.BOX
-    
+    _attr_has_entity_name = True
+
     def __init__(
         self,
         config_entry: ConfigEntry,
@@ -83,10 +84,10 @@ class FanThermostatNumberEntity(NumberEntity):
         self._max_value = max_value
         self._step = step
         
-        uid_suffix = f"{key}_{name}"
         # Use entry_id if unique_id is not set to ensure uniqueness
         base_uid = config_entry.unique_id or config_entry.entry_id
         self._attr_unique_id = f"{base_uid}_{self._key}"
+        self._attr_name = name
         
         # Use the device name (config entry title), not the entity name
         self._attr_device_info = DeviceInfo(
