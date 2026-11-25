@@ -36,7 +36,7 @@ class FanThermostatTemperatureOperation(SelectEntity):
     """Aggregation used to combine multiple temperature sensors."""
 
     _attr_has_entity_name = True
-    _attr_name = "Temperature Operation"
+    _attr_translation_key = "temperature_operation"
     _attr_options = TEMPERATURE_OPERATION_OPTIONS
 
     def __init__(self, config_entry: ConfigEntry) -> None:

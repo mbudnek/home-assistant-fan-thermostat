@@ -28,19 +28,6 @@
     }
   },
   "entity": {
-    "climate": {
-      "fan_thermostat": {
-        "name": "{name}",
-        "state_attributes": {
-          "hvac_mode": {
-            "state": {
-              "off": "Off",
-              "cool": "Cool"
-            }
-          }
-        }
-      }
-    },
     "switch": {
       "manual_override": {
         "name": "Manual Override"
@@ -53,16 +40,13 @@
     },
     "number": {
       "retrigger_time": {
-        "name": "Retrigger Time",
-        "state": "{value} s"
+        "name": "Retrigger Time"
       },
       "motion_timeout": {
-        "name": "Motion Timeout",
-        "state": "{value} s"
+        "name": "Motion Timeout"
       },
       "manual_override_time": {
-        "name": "Manual Override Time",
-        "state": "{value} s"
+        "name": "Manual Override Time"
       }
     }
   }

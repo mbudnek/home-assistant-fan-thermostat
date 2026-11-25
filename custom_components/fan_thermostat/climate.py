@@ -97,6 +97,7 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
     """
 
     _attr_name = None
+    _attr_translation_key = "fan_thermostat"
     _attr_hvac_modes = [HVACMode.OFF, HVACMode.FAN_ONLY]
     _attr_preset_modes = None
     _attr_native_temperature_unit = UnitOfTemperature.FAHRENHEIT

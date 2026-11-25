@@ -30,7 +30,6 @@ async def async_setup_entry(
     
     retrigger_entity = FanThermostatNumberEntity(
         config_entry=config_entry,
-        name="Retrigger Time",
         key="retrigger_time",
         default_value=DEFAULT_RETRIGGER_TIME,
         min_value=0,
@@ -40,7 +39,6 @@ async def async_setup_entry(
 
     motion_timeout_entity = FanThermostatNumberEntity(
         config_entry=config_entry,
-        name="Motion Timeout",
         key="motion_timeout",
         default_value=DEFAULT_MOTION_TIMEOUT,
         min_value=0,
@@ -50,7 +48,6 @@ async def async_setup_entry(
 
     override_time_entity = FanThermostatNumberEntity(
         config_entry=config_entry,
-        name="Manual Override Time",
         key="manual_override_time",
         default_value=DEFAULT_MANUAL_OVERRIDE_TIME,
         min_value=0,
@@ -71,7 +68,6 @@ class FanThermostatNumberEntity(NumberEntity):
     def __init__(
         self,
         config_entry: ConfigEntry,
-        name: str,
         key: str,
         default_value: int,
         min_value: float,
@@ -81,6 +77,7 @@ class FanThermostatNumberEntity(NumberEntity):
         """Initialize the number entity."""
         self._config_entry = config_entry
         self._key = key
+        self._attr_translation_key = key
         self._default_value = default_value
         self._min_value = min_value
         self._max_value = max_value
@@ -89,8 +86,7 @@ class FanThermostatNumberEntity(NumberEntity):
         # Use entry_id if unique_id is not set to ensure uniqueness
         base_uid = config_entry.unique_id or config_entry.entry_id
         self._attr_unique_id = f"{base_uid}_{self._key}"
-        self._attr_name = name
-        
+
         # Use the device name (config entry title), not the entity name
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, config_entry.entry_id)},

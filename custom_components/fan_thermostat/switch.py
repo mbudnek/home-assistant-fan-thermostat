@@ -47,8 +47,8 @@ class FanThermostatManualOverride(SwitchEntity, RestoreEntity):
     climate entity), or be manually turned off to resume automatic control.
     """
 
-    _attr_name = "Manual Override"
     _attr_has_entity_name = True
+    _attr_translation_key = "manual_override"
 
     def __init__(
         self,
