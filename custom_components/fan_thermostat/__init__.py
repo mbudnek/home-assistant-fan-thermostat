@@ -1,7 +1,5 @@
 """The Fan Thermostat integration."""
 
-from __future__ import annotations
-
 import logging
 
 from homeassistant.config_entries import ConfigEntry
@@ -26,7 +24,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: FanThermostatConfigEntry
     hass.data[DOMAIN][entry.entry_id] = FanThermostatController(entry)
     
     # Forward to climate, number, and switch platforms
-    await hass.config_entries.async_forward_entry_setups(entry, ["climate", "number", "switch"])
+    await hass.config_entries.async_forward_entry_setups(entry, ["climate", "number", "select", "switch"])
     return True
 
 
@@ -35,7 +33,7 @@ async def async_unload_entry(
 ) -> bool:
     """Unload a config entry."""
     # Unload platforms
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, ["climate", "number", "switch"])
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, ["climate", "number", "select", "switch"])
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id, None)
     return unload_ok

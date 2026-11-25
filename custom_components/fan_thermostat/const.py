@@ -3,9 +3,9 @@
 DOMAIN = "fan_thermostat"
 
 # Default configuration values
-DEFAULT_RETRIGGER_TIME = 300
-DEFAULT_MOTION_TIMEOUT = 300
-DEFAULT_MANUAL_OVERRIDE_TIME = 300
+DEFAULT_RETRIGGER_TIME = 0
+DEFAULT_MOTION_TIMEOUT = 0
+DEFAULT_MANUAL_OVERRIDE_TIME = 0
 
 # Default target temperatures for the dual-setpoint range
 DEFAULT_TARGET_TEMP_LOW = 72.0  # Default lower setpoint (fan starts here)

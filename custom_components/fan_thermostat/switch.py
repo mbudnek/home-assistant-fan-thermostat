@@ -6,14 +6,12 @@ stops controlling the fans and waits for the override to expire or
 be manually cleared.
 """
 
-from __future__ import annotations
-
 import logging
 from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import Context, HomeAssistant
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
@@ -117,11 +115,18 @@ class FanThermostatManualOverride(SwitchEntity, RestoreEntity):
         self._notify_climate()
         self.async_write_ha_state()
 
-    def sync_state(self, on: bool) -> None:
-        """Silently set the switch state without notifying the climate entity."""
+    def sync_state(self, on: bool, context: Context | None = None) -> None:
+        """Silently set the switch state without notifying the climate entity.
+
+        ``context``, when given, is attached to the state write so the
+        Activity details trace links this transition to the entity that
+        triggered it (e.g. an external change that entered manual override).
+        """
         if self._is_on == on:
             return
         self._is_on = on
+        if context is not None:
+            self.async_set_context(context)
         self.async_write_ha_state()
 
     def _notify_climate(self) -> None:
@@ -134,7 +139,7 @@ class FanThermostatManualOverride(SwitchEntity, RestoreEntity):
         else:
             controller.climate.exit_manual_override()
 
-    def _get_controller(self) -> "FanThermostatController | None":
+    def _get_controller(self) -> FanThermostatController | None:
         """Return the shared controller for this config entry, if available."""
         data = self.hass.data.get(DOMAIN)
         if not isinstance(data, dict):

@@ -6,8 +6,9 @@ A Home Assistant custom component that controls ceiling fans based on temperatur
 
 - **Temperature-based fan control**: Automatically adjusts fan speed based on temperature readings using dual setpoints (cooling low/high)
 - **Motion sensor integration**: Fans only run when motion is detected
-- **Manual override**: Temporary disable automatic control via a switch or number entity
-- **Retrigger time**: Prevents rapid fan cycling after motion timeout
+- **Manual override**: Temporary disable automatic control via a switch
+- **Temperature aggregation**: Combine multiple temperature sensors using minimum, maximum (default), or average
+- **Retrigger time**: Prevents rapid fan cycling after a fan turn-off (motion or temperature triggered)
 - **Multiple fan controllers**: Control multiple fans simultaneously
 - **Switch support**: Control on/off switches in addition to fans
 
@@ -37,7 +38,7 @@ After installation, go to **Settings → Devices & Services → Add Integration*
 You'll need to configure:
 
 - **Name**: A name for this thermostat instance (used as the device identifier)
-- **Temperature Sensors**: One or more temperature sensors (e.g., `sensor.bedroom_temp`)
+- **Temperature Sensors**: One or more temperature sensors (e.g., `sensor.bedroom_temp`). With more than one, use the **Temperature Operation** select entity to choose how they are combined: Minimum, Maximum (default), or Average
 - **Fan Controllers**: One or more fan entities to control (e.g., `fan.living_room_fan`)
 - **Motion Sensors** (optional): Motion sensors to gate fan operation
 - **Switches** (optional): On/off switches to control alongside fans
@@ -55,7 +56,7 @@ Fan speed is linearly interpolated between these two values (0% to 100%).
 
 Timer settings are no longer configured during setup. Instead, they are exposed as **Number entities** on the device after installation:
 
-- **Retrigger Time**: Seconds before fan can turn back on after motion timeout
+- **Retrigger Time**: Seconds before fan can turn back on after turning off (motion or temperature triggered)
 - **Motion Timeout**: Seconds fan stays on after motion stops
 - **Manual Override Time**: Seconds before auto-control resumes after manual override
 
@@ -76,10 +77,12 @@ Each Fan Thermostat instance creates a single device with:
 
 - **Climate entity**: The thermostat with dual temperature control and fan support
 - **Switch entity**: Manual override toggle
+- **Select entity** (when multiple temperature sensors are configured):
+  - Temperature Operation (`min`, `max`, `avg`; default `max`)
 - **Number entities**: 
-  - Retrigger Time (seconds)
-  - Motion Timeout (seconds)
-  - Manual Override Time (seconds)
+  - Retrigger Time (seconds; default 0 — disabled)
+  - Motion Timeout (seconds; default 0 — fans turn off immediately when motion stops)
+  - Manual Override Time (seconds; default 0 — automatic override disabled)
 
 ## Usage
 
@@ -89,11 +92,11 @@ The thermostat automatically controls fan speed based on:
 
 1. **Temperature**: When temperature exceeds the cooling setpoint, fans turn on at appropriate speed
 2. **Motion**: If motion sensors are configured, fans only run when motion is detected (`on` or `active`)
-3. **Retrigger**: After motion timeout, fans can automatically turn back on if temperature warrants it
+3. **Retrigger**: After fans turn off (motion or temperature triggered), fans can automatically turn back on once the retrigger time has elapsed if temperature and motion warrant it
 
 ### Manual Override
 
-Use the manual override switch to temporarily disable automatic control. The override expires after the configured time (default 5 minutes). While active, fan speed is determined by current temperature only (motion is ignored).
+Use the manual override switch to temporarily disable automatic control. The override expires automatically after the configured time (default 0 — disabled; the override stays until the switch is turned off). While active, automatic fan control is paused entirely.
 
 ## Migration from Hubitat
 

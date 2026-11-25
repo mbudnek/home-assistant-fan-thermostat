@@ -29,7 +29,7 @@ from homeassistant.const import (
     STATE_OFF,
     STATE_ON,
 )
-from homeassistant.core import HomeAssistant, State
+from homeassistant.core import EVENT_STATE_CHANGED, HomeAssistant, State
 from homeassistant.helpers import entity_registry as er
 from homeassistant.setup import async_setup_component
 from homeassistant.util import dt as dt_util
@@ -243,14 +243,52 @@ async def test_temperature_step_calculates_speed(
     assert climate_state.attributes.get("percentage") == 100
 
 
-async def test_multiple_temperature_sensors_averaged(
+async def test_multiple_temperature_sensors_max_by_default(
     hass: HomeAssistant,
     mock_config_entry_multiple_sensors: MockConfigEntry,
 ) -> None:
-    """Test that multiple temperature sensors are averaged."""
+    """Test that multiple temperature sensors are combined with max by default."""
     await setup_integration(hass, mock_config_entry_multiple_sensors)
 
-    # Set two temperatures: 69 and 71 -> average 70 (equals target_temp_low=70)
+    # Set two temperatures: 69 and 71 -> max 71 (above target_temp_low=70)
+    hass.states.async_set(
+        "sensor.living_room_temp_1", 69.0, {"device_class": "temperature"}
+    )
+    hass.states.async_set(
+        "sensor.living_room_temp_2", 71.0, {"device_class": "temperature"}
+    )
+
+    climate_state = hass.states.get("climate.living_room_fan_thermostat")
+    # Max is 71, target_low=70, target_high=78 (range=8) -> ((71-70)/8)*100 = 12.5 -> 12
+    assert climate_state.attributes.get("percentage") == 12
+
+    # Now set to 74 and 78 -> max 78 (at target_high) -> 100%
+    hass.states.async_set(
+        "sensor.living_room_temp_1", 74.0, {"device_class": "temperature"}
+    )
+    hass.states.async_set(
+        "sensor.living_room_temp_2", 78.0, {"device_class": "temperature"}
+    )
+
+    climate_state = hass.states.get("climate.living_room_fan_thermostat")
+    assert climate_state.attributes.get("percentage") == 100
+
+
+async def test_multiple_temperature_sensors_avg(
+    hass: HomeAssistant,
+    mock_config_entry_multiple_sensors: MockConfigEntry,
+) -> None:
+    """Test that the temperature aggregation can be set to average."""
+    await setup_integration(hass, mock_config_entry_multiple_sensors)
+
+    await hass.services.async_call(
+        "select",
+        "select_option",
+        {"entity_id": "select.living_room_fan_thermostat_temperature_operation", "option": "avg"},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+
     hass.states.async_set(
         "sensor.living_room_temp_1", 69.0, {"device_class": "temperature"}
     )
@@ -262,7 +300,6 @@ async def test_multiple_temperature_sensors_averaged(
     # Average is 70, which equals target_low, so fan should be off
     assert climate_state.attributes.get("percentage") is None
 
-    # Now set to 74 and 78 -> average 76 (between target_low=70 and target_high=78)
     hass.states.async_set(
         "sensor.living_room_temp_1", 74.0, {"device_class": "temperature"}
     )
@@ -273,6 +310,42 @@ async def test_multiple_temperature_sensors_averaged(
     climate_state = hass.states.get("climate.living_room_fan_thermostat")
     # Average is 76, target_low is 70, target_high is 78 (range=8) -> ((76-70)/8)*100 = 75%
     assert climate_state.attributes.get("percentage") == 75
+
+
+async def test_multiple_temperature_sensors_min_and_select_entity(
+    hass: HomeAssistant,
+    mock_config_entry_multiple_sensors: MockConfigEntry,
+) -> None:
+    """Test the min aggregation and the select entity that drives it."""
+    await setup_integration(hass, mock_config_entry_multiple_sensors)
+
+    select_state = hass.states.get("select.living_room_fan_thermostat_temperature_operation")
+    assert select_state is not None
+    assert select_state.state == "max"
+    assert select_state.attributes.get("options") == ["min", "max", "avg"]
+
+    hass.states.async_set(
+        "sensor.living_room_temp_1", 74.0, {"device_class": "temperature"}
+    )
+    hass.states.async_set(
+        "sensor.living_room_temp_2", 78.0, {"device_class": "temperature"}
+    )
+
+    # max (default) -> 78 -> 100%
+    climate_state = hass.states.get("climate.living_room_fan_thermostat")
+    assert climate_state.attributes.get("percentage") == 100
+
+    # Switch to min via the select entity -> 74 -> ((74-70)/8)*100 = 50%
+    await hass.services.async_call(
+        "select",
+        "select_option",
+        {"entity_id": "select.living_room_fan_thermostat_temperature_operation", "option": "min"},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+
+    climate_state = hass.states.get("climate.living_room_fan_thermostat")
+    assert climate_state.attributes.get("percentage") == 50
 
 
 async def test_motion_sensor_turns_fan_off(
@@ -634,6 +707,37 @@ async def test_retrigger_time_blocks_fan_restart(
     assert climate_state.attributes.get("percentage") == 100
 
 
+async def test_retrigger_time_blocks_fan_restart_without_motion_sensors(
+    hass: HomeAssistant,
+    mock_config_entry_no_motion: MockConfigEntry,
+) -> None:
+    """Test that retrigger time blocks a temperature-driven fan restart (no motion sensors)."""
+    await setup_integration(hass, mock_config_entry_no_motion)
+
+    # Above the low setpoint: fan runs (75 -> (75-70)/(82-70) = ~42%)
+    hass.states.async_set("sensor.office_temp", 75.0, {"device_class": "temperature"})
+    climate_state = hass.states.get("climate.office_fan_thermostat")
+    assert climate_state.attributes.get("percentage") == 42
+
+    # Temperature drops below the low setpoint: fans turn off, retrigger window starts
+    hass.states.async_set("sensor.office_temp", 65.0, {"device_class": "temperature"})
+    climate_state = hass.states.get("climate.office_fan_thermostat")
+    assert climate_state.attributes.get("percentage") is None
+
+    # Temperature rises back above the low setpoint inside the retrigger window:
+    # the fan must stay off
+    hass.states.async_set("sensor.office_temp", 75.0, {"device_class": "temperature"})
+    await hass.async_block_till_done()
+    climate_state = hass.states.get("climate.office_fan_thermostat")
+    assert climate_state.attributes.get("percentage") is None
+
+    # Retrigger window elapses (60s): the fan turns back on
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=61))
+    await hass.async_block_till_done()
+    climate_state = hass.states.get("climate.office_fan_thermostat")
+    assert climate_state.attributes.get("percentage") == 42
+
+
 async def test_restore_unavailable_state_does_not_crash(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
@@ -658,7 +762,8 @@ async def test_external_change_enters_manual_override(
 
     async def _handle_set_percentage(call):
         hass.states.async_set(
-            call.data["entity_id"], "on", {"percentage": call.data["percentage"]}
+            call.data["entity_id"], "on", {"percentage": call.data["percentage"]},
+            context=call.context,
         )
 
     hass.services.async_register("fan", "set_percentage", _handle_set_percentage)
@@ -686,3 +791,183 @@ async def test_external_change_enters_manual_override(
         "switch.bedroom_fan_thermostat_manual_override"
     )
     assert switch_state.state == STATE_ON
+
+
+async def test_self_initiated_out_of_order_calls_do_not_enter_override(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Two queued set_percentage calls complete after a later control pass.
+
+    Regression test for the lost-expectation race: the second call must not
+    overwrite the first call's pending expectation, or the first call's
+    state-change event would look like an external change and trigger
+    manual override.
+    """
+    import asyncio
+
+    hold = asyncio.Event()
+
+    async def _handle_set_percentage(call):
+        await hold.wait()
+        hass.states.async_set(
+            call.data["entity_id"], "on", {"percentage": call.data["percentage"]},
+            context=call.context,
+        )
+
+    hass.services.async_register("fan", "set_percentage", _handle_set_percentage)
+
+    await setup_integration(hass, mock_config_entry)
+
+    # First call: 85 -> 100%. The mock suspends, so the service call stays
+    # in flight while the second control pass runs.
+    hass.states.async_set(
+        "sensor.bedroom_temp", 85.0, {"device_class": "temperature"}
+    )
+    # Second call: 75 -> 50% (between 72 and 78). The expectation for the
+    # first call must survive this overwrite.
+    hass.states.async_set(
+        "sensor.bedroom_temp", 75.0, {"device_class": "temperature"}
+    )
+
+    hold.set()
+    await hass.async_block_till_done()
+
+    climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state.attributes.get("percentage") == 50
+
+    switch_state = hass.states.get(
+        "switch.bedroom_fan_thermostat_manual_override"
+    )
+    assert switch_state is not None
+    # Both self-initiated changes must be ignored, never manual override
+    assert switch_state.state == STATE_OFF
+
+
+async def test_control_pass_shares_one_context_parented_to_triggering_event(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """One pass context is shared by the service calls and the state write.
+
+    The pass context is parented to the triggering event's context, so the
+    Activity details trace can link the sensor event to the fan changes and
+    to the thermostat itself (the automation/script convention).
+    """
+    call_context_ids = []
+    sensor_context_ids = []
+
+    async def _handle_set_percentage(call):
+        call_context_ids.append(call.context.id)
+        hass.states.async_set(
+            call.data["entity_id"], "on", {"percentage": call.data["percentage"]},
+            context=call.context,
+        )
+
+    hass.services.async_register("fan", "set_percentage", _handle_set_percentage)
+
+    await setup_integration(hass, mock_config_entry)
+
+    def _listener(event):
+        if event.data.get("entity_id") == "sensor.bedroom_temp":
+            sensor_context_ids.append(event.context.id)
+
+    hass.bus.async_listen(EVENT_STATE_CHANGED, _listener)
+
+    hass.states.async_set(
+        "sensor.bedroom_temp", 85.0, {"device_class": "temperature"}
+    )
+    await hass.async_block_till_done()
+
+    assert sensor_context_ids
+    assert call_context_ids
+    pass_context_id = call_context_ids[0]
+    assert all(cid == pass_context_id for cid in call_context_ids)
+
+    climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
+    assert climate_state.context is not None
+    # The thermostat's own state row carries the same pass context
+    assert climate_state.context.id == pass_context_id
+    # ...and the pass context is parented to the triggering event's context,
+    # so the trace links the sensor to the fan/thermostat changes
+    assert climate_state.context.parent_id == sensor_context_ids[0]
+
+
+async def test_self_initiated_events_carry_pass_marker_context(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """State-change events from our own service calls carry the marker context.
+
+    The marker subclass is how the thermostat distinguishes self-initiated
+    changes from external ones. Replacing it with a plain Context in
+    _new_trigger_context makes events fail the isinstance check and enter
+    manual override instead.
+    """
+    from custom_components.fan_thermostat.climate import _ControlPassContext
+
+    event_contexts = []
+
+    async def _handle_set_percentage(call):
+        hass.states.async_set(
+            call.data["entity_id"], "on", {"percentage": call.data["percentage"]},
+            context=call.context,
+        )
+
+    hass.services.async_register("fan", "set_percentage", _handle_set_percentage)
+
+    await setup_integration(hass, mock_config_entry)
+
+    def _listener(event):
+        if event.data.get("entity_id") == "fan.bedroom_fan":
+            event_contexts.append(event.context)
+
+    hass.bus.async_listen(EVENT_STATE_CHANGED, _listener)
+
+    hass.states.async_set(
+        "sensor.bedroom_temp", 85.0, {"device_class": "temperature"}
+    )
+    await hass.async_block_till_done()
+
+    assert event_contexts
+    assert all(isinstance(ctx, _ControlPassContext) for ctx in event_contexts)
+
+
+async def test_external_change_links_override_switch_state_write_to_external_event(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """An external fan change links the override switch's state write to that event.
+
+    The fresh plain Context attached to the switch's state write is parented
+    to the external event's context id, so the trace links the originator
+    (wall switch, automation) to the switch (the visible override transition;
+    the climate entity's own state write is skipped because nothing about it
+    changed). It must not be a marker context - the event is not self-initiated.
+    """
+    from custom_components.fan_thermostat.climate import _ControlPassContext
+
+    external_context_ids = []
+
+    def _listener(event):
+        if event.data.get("entity_id") == "fan.bedroom_fan":
+            external_context_ids.append(event.context.id)
+
+    await setup_integration(hass, mock_config_entry)
+    hass.bus.async_listen(EVENT_STATE_CHANGED, _listener)
+
+    hass.states.async_set("fan.bedroom_fan", "off", {"percentage": 0})
+    await hass.async_block_till_done()
+
+    assert external_context_ids
+    external_context_id = external_context_ids[0]
+
+    switch_state = hass.states.get("switch.bedroom_fan_thermostat_manual_override")
+    assert switch_state is not None
+    assert switch_state.context is not None
+    # The switch's state row carries a fresh child context...
+    assert switch_state.context.parent_id == external_context_id
+    assert switch_state.context.id != external_context_id
+    # ...and it is not a marker context (the event is not ours)
+    assert not isinstance(switch_state.context, _ControlPassContext)

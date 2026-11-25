@@ -35,9 +35,9 @@ def test_const():
     )
     
     assert DOMAIN == 'fan_thermostat'
-    assert DEFAULT_RETRIGGER_TIME == 300
-    assert DEFAULT_MOTION_TIMEOUT == 300
-    assert DEFAULT_MANUAL_OVERRIDE_TIME == 300
+    assert DEFAULT_RETRIGGER_TIME == 0
+    assert DEFAULT_MOTION_TIMEOUT == 0
+    assert DEFAULT_MANUAL_OVERRIDE_TIME == 0
     assert DEFAULT_TARGET_TEMP_LOW == 72.0
     assert DEFAULT_TARGET_TEMP_HIGH == 78.0
 

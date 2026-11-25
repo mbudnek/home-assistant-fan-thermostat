@@ -1,5 +1,4 @@
 """Number platform for Fan Thermostat configuration."""
-from __future__ import annotations
 
 import logging
 from typing import Any
@@ -16,6 +15,7 @@ from .const import (
     DEFAULT_MANUAL_OVERRIDE_TIME,
     DOMAIN,
 )
+from .controller import FanThermostatController
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ async def async_setup_entry(
         name="Retrigger Time",
         key="retrigger_time",
         default_value=DEFAULT_RETRIGGER_TIME,
-        min_value=10,
+        min_value=0,
         max_value=3600,
         step=10,
     )
@@ -52,7 +52,7 @@ async def async_setup_entry(
         name="Manual Override Time",
         key="manual_override_time",
         default_value=DEFAULT_MANUAL_OVERRIDE_TIME,
-        min_value=60,
+        min_value=0,
         max_value=86400,
         step=60,
     )
@@ -129,15 +129,30 @@ class FanThermostatNumberEntity(NumberEntity):
                 value, self._key, int(self._min_value), int(self._max_value)
             )
             return
-        
+
         new_data = {**self._config_entry.data}
         new_data[self._key] = int(value)
-        
+
         # Update config entry in storage and memory
         self.hass.config_entries.async_update_entry(
-            self._config_entry, 
+            self._config_entry,
             data=new_data
         )
-        
+
         # Update internal state immediately so UI reflects change without reload
         self._attr_native_value = int(value)
+
+        # Adjust any pending timers to the new value
+        controller = self._get_controller()
+        if controller is not None and controller.climate is not None:
+            controller.climate.handle_settings_changed(self._key)
+
+    def _get_controller(self) -> FanThermostatController | None:
+        """Return the shared controller for this config entry, if available."""
+        data = self.hass.data.get(DOMAIN)
+        if not isinstance(data, dict):
+            return None
+        controller = data.get(self._config_entry.entry_id)
+        if isinstance(controller, FanThermostatController):
+            return controller
+        return None

@@ -46,6 +46,11 @@
         "name": "Manual Override"
       }
     },
+    "select": {
+      "temperature_operation": {
+        "name": "Temperature Operation"
+      }
+    },
     "number": {
       "retrigger_time": {
         "name": "Retrigger Time",
