@@ -109,7 +109,11 @@ async def test_set_hvac_mode_off(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
 ) -> None:
-    """Test setting HVAC mode to off turns off the fans."""
+    """Test setting HVAC mode to off disables the thermostat (fans untouched).
+
+    HVAC mode OFF means the thermostat is off, not the fans: no fan commands
+    are issued and the physical fans stay exactly as the user left them.
+    """
     await setup_integration(hass, mock_config_entry)
 
     # Set a temperature that would normally turn the fan on (above target_high=78)
@@ -448,6 +452,135 @@ async def test_manual_override_switch(
     assert climate_state.attributes.get("percentage") == 100
 
 
+async def test_manual_override_exit_turns_off_fan_when_fan_is_on(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Exiting manual override turns the physically-on fan off.
+
+    Regression test: the exit path must recalculate the desired speed and
+    command it - a fan the user turned on manually is off when the override
+    is cleared, even though the thermostat never tracked the physical speed.
+    """
+    recorded = []
+
+    async def _handle_turn_off(call):
+        recorded.append(("turn_off", call.data.get("entity_id")))
+
+    async def _handle_set_percentage(call):
+        recorded.append(("set_percentage", call.data.get("percentage")))
+
+    hass.services.async_register("fan", "turn_off", _handle_turn_off)
+    hass.services.async_register("fan", "set_percentage", _handle_set_percentage)
+
+    await setup_integration(hass, mock_config_entry)
+
+    # Low temperature: thermostat keeps the fan off
+    hass.states.async_set("sensor.bedroom_temp", 70.0, {"device_class": "temperature"})
+    await hass.async_block_till_done()
+
+    # User turns the physical fan on (external change)
+    hass.states.async_set("fan.bedroom_fan", "on", {"percentage": 100})
+    await hass.async_block_till_done()
+
+    switch_state = hass.states.get("switch.bedroom_fan_thermostat_manual_override")
+    assert switch_state is not None
+    assert switch_state.state == STATE_ON
+
+    # Manual override is turned off: the thermostat resumes automatic control
+    await hass.services.async_call(
+        "switch",
+        "turn_off",
+        {ATTR_ENTITY_ID: "switch.bedroom_fan_thermostat_manual_override"},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+
+    assert ("turn_off", "fan.bedroom_fan") in recorded
+    climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state.attributes.get("percentage") is None
+
+
+async def test_manual_override_exit_changes_fan_speed_when_fan_is_on(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Exiting manual override applies the recalculated speed to a physically-on fan.
+
+    The desired speed is recalculated on every pass, so the physical speed the
+    user set manually is overwritten by the temperature-derived one.
+    """
+    recorded = []
+
+    async def _handle_set_percentage(call):
+        recorded.append(call.data.get("percentage"))
+
+    hass.services.async_register("fan", "set_percentage", _handle_set_percentage)
+
+    await setup_integration(hass, mock_config_entry)
+
+    # Temp 75 -> thermostat wants 50%
+    hass.states.async_set("sensor.bedroom_temp", 75.0, {"device_class": "temperature"})
+    await hass.async_block_till_done()
+    climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state.attributes.get("percentage") == 50
+
+    # User manually sets the fan to 100% (external change)
+    hass.states.async_set("fan.bedroom_fan", "on", {"percentage": 100})
+    await hass.async_block_till_done()
+
+    await hass.services.async_call(
+        "switch",
+        "turn_off",
+        {ATTR_ENTITY_ID: "switch.bedroom_fan_thermostat_manual_override"},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+
+    # Thermostat resumes control: the desired speed (50%) is applied
+    assert recorded and recorded[-1] == 50
+    climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state.attributes.get("percentage") == 50
+
+
+async def test_manual_override_exit_turns_fan_on_when_fan_is_off(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Exiting manual override turns the physically-off fan back on.
+
+    Same principle: the desired speed is recalculated on exit, so a fan the
+    user turned off manually comes back on when the override is cleared.
+    """
+    recorded = []
+
+    async def _handle_set_percentage(call):
+        recorded.append(call.data.get("percentage"))
+
+    hass.services.async_register("fan", "set_percentage", _handle_set_percentage)
+
+    await setup_integration(hass, mock_config_entry)
+
+    # Temp 85 -> thermostat wants 100%
+    hass.states.async_set("sensor.bedroom_temp", 85.0, {"device_class": "temperature"})
+    await hass.async_block_till_done()
+
+    # User manually turns the fan off (external change)
+    hass.states.async_set("fan.bedroom_fan", "off", {"percentage": 0})
+    await hass.async_block_till_done()
+
+    await hass.services.async_call(
+        "switch",
+        "turn_off",
+        {ATTR_ENTITY_ID: "switch.bedroom_fan_thermostat_manual_override"},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+
+    assert 100 in recorded
+    climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state.attributes.get("percentage") == 100
+
 
 
 async def test_turn_on(
@@ -455,7 +588,7 @@ async def test_turn_on(
     mock_config_entry: MockConfigEntry,
 ) -> None:
     """Test turning the climate entity on."""
-    # Set a temperature so _current_temperature is known
+    # Set a temperature so the desired speed is known
     hass.states.async_set("sensor.bedroom_temp", "83.0", {"device_class": "temperature"})
     
     await setup_integration(hass, mock_config_entry)

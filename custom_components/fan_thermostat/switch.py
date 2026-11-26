@@ -1,21 +1,25 @@
 """Switch platform for the Fan Thermostat manual override.
 
 The manual override switch allows the user to temporarily disable
-automatic fan control. When the switch is turned on, the climate entity
-stops controlling the fans and waits for the override to expire or
-be manually cleared.
+automatic fan control. This switch is the single owner of the override
+state: it holds the on/off flag, the auto-clear timer and the
+``manual_override_time`` setting. The climate entity only queries the
+switch (``is_on``) to gate its control passes and resumes automatic
+control when the override is cleared.
 """
 
 import logging
-from typing import Any
+from typing import Any, Callable
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import Context, HomeAssistant
+from homeassistant.core import Context, HomeAssistant, callback
+from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import (
+    DEFAULT_MANUAL_OVERRIDE_TIME,
     DOMAIN,
     get_device_info,
 )
@@ -43,8 +47,10 @@ class FanThermostatManualOverride(SwitchEntity, RestoreEntity):
     """Representation of a Fan Thermostat manual override switch.
 
     This switch temporarily disables automatic fan control when turned on.
-    It can auto-expire after the configured override time (managed by the
-    climate entity), or be manually turned off to resume automatic control.
+    The override auto-expires after the configured ``manual_override_time``
+    (0 disables auto-expiry) or is manually cleared, either way by turning
+    the switch off. Expiry and manual clear both resume automatic control
+    via the climate entity.
     """
 
     _attr_has_entity_name = True
@@ -62,11 +68,17 @@ class FanThermostatManualOverride(SwitchEntity, RestoreEntity):
         self._attr_unique_id = f"{uid}_override"
         self._attr_device_info = self._get_device_info(config_entry, name)
         self._is_on = False
+        self._auto_clear_cancel: Callable[[], None] | None = None
 
     @staticmethod
     def _get_device_info(config_entry: ConfigEntry, name: str):
         """Get device info for the thermostat."""
         return get_device_info(config_entry, name)
+
+    @property
+    def _manual_override_time(self) -> int:
+        """Return current manual override time from config entry."""
+        return self._config_entry.data.get("manual_override_time", DEFAULT_MANUAL_OVERRIDE_TIME)
 
     @property
     def is_on(self) -> bool:
@@ -86,18 +98,19 @@ class FanThermostatManualOverride(SwitchEntity, RestoreEntity):
         controller = self._get_controller()
         if controller is not None:
             controller.switch = self
-            # If the climate entity was already registered and is in manual
-            # override, sync to it (and keep the switch consistent).
-            if controller.climate is not None:
-                self._is_on = controller.climate.manual_override_active
-        # Restore last state
+        # Restore last state: if the switch was on at shutdown, restore the
+        # override and re-arm the auto-clear timer. The climate entity
+        # queries this switch's state for its control passes, so it picks up
+        # the restored override automatically.
         last_state = await self.async_get_last_state()
         if last_state is not None and last_state.state == "on":
             self._is_on = True
+            self._schedule_auto_clear()
             self._notify_climate()
 
     async def async_will_remove_from_hass(self) -> None:
         """When entity will be removed from hass."""
+        self._cancel_auto_clear()
         controller = self._get_controller()
         if controller is not None and controller.switch is self:
             controller.switch = None
@@ -105,39 +118,75 @@ class FanThermostatManualOverride(SwitchEntity, RestoreEntity):
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn on manual override to disable automatic fan control."""
-        self._is_on = True
-        self._notify_climate()
-        self.async_write_ha_state()
+        self.enter()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn off manual override to resume automatic fan control."""
-        self._is_on = False
-        self._notify_climate()
-        self.async_write_ha_state()
+        self.exit()
 
-    def sync_state(self, on: bool, context: Context | None = None) -> None:
-        """Silently set the switch state without notifying the climate entity.
+    def enter(self, context: Context | None = None) -> None:
+        """Enter manual override: record the override and arm the auto-clear timer.
 
-        ``context``, when given, is attached to the state write so the
-        Activity details trace links this transition to the entity that
-        triggered it (e.g. an external change that entered manual override).
+        ``context``, when given, is attached to the state write before it is
+        written, so the Activity details trace links the triggering event
+        (e.g. an external change) to the visible override transition.
         """
-        if self._is_on == on:
+        if self._is_on:
             return
-        self._is_on = on
+        self._is_on = True
+        self._schedule_auto_clear()
         if context is not None:
             self.async_set_context(context)
         self.async_write_ha_state()
+        self._notify_climate()
+
+    def exit(self) -> None:
+        """Exit manual override: clear the override and resume automatic control."""
+        if not self._is_on:
+            return
+        self._is_on = False
+        self._cancel_auto_clear()
+        self.async_write_ha_state()
+        self._notify_climate()
+
+    def handle_settings_changed(self, key: str) -> None:
+        """Re-arm the auto-clear timer after the override time changed."""
+        if key == "manual_override_time" and self._is_on:
+            self._reschedule_auto_clear()
+
+    def _schedule_auto_clear(self) -> None:
+        """Schedule the automatic clear of manual override."""
+        if self._manual_override_time <= 0:
+            return
+        self._cancel_auto_clear()
+        self._auto_clear_cancel = async_call_later(
+            self.hass, self._manual_override_time,
+            self._auto_clear_callback,
+        )
+
+    def _reschedule_auto_clear(self) -> None:
+        """Re-arm the auto-clear timer with the current time."""
+        self._cancel_auto_clear()
+        self._schedule_auto_clear()
+
+    def _cancel_auto_clear(self) -> None:
+        """Cancel the auto-clear timer."""
+        if self._auto_clear_cancel is not None:
+            self._auto_clear_cancel()
+            self._auto_clear_cancel = None
+
+    @callback
+    def _auto_clear_callback(self, _time) -> None:
+        """The override time elapsed: clear the override and resume control."""
+        self._auto_clear_cancel = None
+        self.exit()
 
     def _notify_climate(self) -> None:
         """Push this switch's state to the climate entity."""
         controller = self._get_controller()
         if controller is None or controller.climate is None:
             return
-        if self._is_on:
-            controller.climate.enter_manual_override()
-        else:
-            controller.climate.exit_manual_override()
+        controller.climate._on_switch_override_changed(self._is_on)
 
     def _get_controller(self) -> FanThermostatController | None:
         """Return the shared controller for this config entry, if available."""
