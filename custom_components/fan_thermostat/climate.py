@@ -196,27 +196,18 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
 
     @property
     def available(self) -> bool:
-        has_seen_any = False
-        for sensor_id in self._temperature_sensor_ids:
-            state = self.hass.states.get(sensor_id)
-            if state is not None:
-                has_seen_any = True
-                if state.state != "unavailable":
-                    return True
-        for fan_id in self._fan_controller_ids:
-            state = self.hass.states.get(fan_id)
-            if state is not None:
-                has_seen_any = True
-                if state.state != "unavailable":
-                    return True
-        for sw_id in self._switch_ids:
-            state = self.hass.states.get(sw_id)
-            if state is not None:
-                has_seen_any = True
-                if state.state != "unavailable":
-                    return True
-        if not has_seen_any:
-            return True
+        # Available when any configured input reports a usable state. An
+        # input that is unknown or unavailable (or referenced but never
+        # reported) is not usable, so a typo'd or dead configuration reports
+        # the entity as unavailable rather than letting it look healthy.
+        for entity_id in [
+            *self._temperature_sensor_ids,
+            *self._fan_controller_ids,
+            *self._switch_ids,
+        ]:
+            state = self.hass.states.get(entity_id)
+            if state is not None and state.state not in ("unknown", "unavailable"):
+                return True
         return False
 
     @property

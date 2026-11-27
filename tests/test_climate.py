@@ -53,6 +53,7 @@ async def test_climate_entity_exists(
     entity_registry: er.EntityRegistry,
 ) -> None:
     """Test that the climate entity is created."""
+    hass.states.async_set("sensor.bedroom_temp", "72.0", {"device_class": "temperature"})
     await setup_integration(hass, mock_config_entry)
 
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
@@ -83,6 +84,7 @@ async def test_climate_initial_state(
     mock_config_entry: MockConfigEntry,
 ) -> None:
     """Test the initial state of the climate entity."""
+    hass.states.async_set("sensor.bedroom_temp", "72.0", {"device_class": "temperature"})
     await setup_integration(hass, mock_config_entry)
 
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
@@ -99,6 +101,7 @@ async def test_set_hvac_mode_fan_only(
     mock_config_entry: MockConfigEntry,
 ) -> None:
     """Test setting HVAC mode to fan_only."""
+    hass.states.async_set("sensor.bedroom_temp", "72.0", {"device_class": "temperature"})
     await setup_integration(hass, mock_config_entry)
 
     await hass.services.async_call(
@@ -164,6 +167,7 @@ async def test_set_temperature(
     mock_config_entry: MockConfigEntry,
 ) -> None:
     """Test setting the target temperature range."""
+    hass.states.async_set("sensor.bedroom_temp", "72.0", {"device_class": "temperature"})
     await setup_integration(hass, mock_config_entry)
 
     # Set both low and high temperatures
@@ -631,6 +635,7 @@ async def test_switches_controlled(
     mock_config_entry_with_switches: MockConfigEntry,
 ) -> None:
     """Test that switches are controlled when fans would be controlled."""
+    hass.states.async_set("sensor.box_fan_temp", "72.0", {"device_class": "temperature"})
     await setup_integration(hass, mock_config_entry_with_switches)
 
     # Verify climate entity exists and is in FAN_ONLY mode
@@ -707,6 +712,7 @@ async def test_climate_hvac_action(
     mock_config_entry: MockConfigEntry,
 ) -> None:
     """Test that the climate entity reports the correct HVAC action."""
+    hass.states.async_set("sensor.bedroom_temp", "72.0", {"device_class": "temperature"})
     await setup_integration(hass, mock_config_entry)
 
     # Initially, no temperature set yet, mode=FAN_ONLY so action is IDLE (not OFF since we're not in OFF mode)
@@ -741,6 +747,7 @@ async def test_climate_native_temperature_unit(
     mock_config_entry: MockConfigEntry,
 ) -> None:
     """Test that the climate entity reports Fahrenheit as the temperature unit."""
+    hass.states.async_set("sensor.bedroom_temp", "72.0", {"device_class": "temperature"})
     await setup_integration(hass, mock_config_entry)
 
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
@@ -870,6 +877,7 @@ async def test_restore_unavailable_state_does_not_crash(
     """Test that an unavailable last state is restored as FAN_ONLY instead of crashing."""
     mock_restore_cache(hass, [State("climate.bedroom_fan_thermostat", "unavailable")])
 
+    hass.states.async_set("sensor.bedroom_temp", "72.0", {"device_class": "temperature"})
     await setup_integration(hass, mock_config_entry)
 
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
@@ -1197,6 +1205,7 @@ async def test_set_temperature_persists_to_config_entry(
     mock_config_entry: MockConfigEntry,
 ) -> None:
     """Test that setting the target temperature range is persisted to the config entry."""
+    hass.states.async_set("sensor.bedroom_temp", "72.0", {"device_class": "temperature"})
     await setup_integration(hass, mock_config_entry)
 
     await hass.services.async_call(
@@ -1243,6 +1252,7 @@ async def test_set_temperature_survives_reload(
     mock_config_entry: MockConfigEntry,
 ) -> None:
     """Test that the set target temperature range is kept across a reload."""
+    hass.states.async_set("sensor.bedroom_temp", "72.0", {"device_class": "temperature"})
     await setup_integration(hass, mock_config_entry)
 
     await hass.services.async_call(

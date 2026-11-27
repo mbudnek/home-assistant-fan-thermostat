@@ -11,6 +11,7 @@ async def test_setup_entry(
     mock_config_entry: MockConfigEntry,
 ) -> None:
     """Test setting up config entry."""
+    hass.states.async_set("sensor.bedroom_temp", "72.0", {"device_class": "temperature"})
     await setup_integration(hass, mock_config_entry)
 
     # Check that the climate entity was set up
