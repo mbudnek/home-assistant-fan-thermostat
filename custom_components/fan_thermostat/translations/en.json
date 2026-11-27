@@ -6,20 +6,21 @@
         "data": {
           "name": "Name",
           "temperature_sensors": "Temperature Sensors",
-          "fan_controllers": "Fan Controllers",
+          "fan_controllers": "Fan Controllers (optional)",
           "motion_sensors": "Motion Sensors (optional)",
           "switches": "Switches (optional)"
         },
         "data_description": {
           "name": "Name for this thermostat instance",
           "temperature_sensors": "Select one or more temperature sensors",
-          "fan_controllers": "Select one or more fan controllers",
+          "fan_controllers": "Select one or more fan controllers, or leave empty to use only switches",
           "motion_sensors": "Select motion sensors to enable motion-based control",
           "switches": "Select on/off switches to control"
         }
       }
     },
     "error": {
+      "name_required": "Please enter a name.",
       "no_temp_sensors": "At least one temperature sensor is required.",
       "no_fan_or_switch": "At least one fan controller or switch is required."
     },

@@ -1,7 +1,6 @@
 """Config flow for the Fan Thermostat integration."""
 
 import logging
-import uuid
 from typing import Any
 
 import probatio
@@ -41,6 +40,10 @@ class FanThermostatConfigFlow(ConfigFlow, domain=DOMAIN):
         # Validate inputs
         errors: dict[str, str] = {}
 
+        name = user_input.get("name", "").strip()
+        if not name:
+            errors["name"] = "name_required"
+
         temperature_sensors = user_input.get("temperature_sensors", [])
         if not temperature_sensors:
             errors["base"] = "no_temp_sensors"
@@ -57,18 +60,17 @@ class FanThermostatConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors=errors,
             )
 
-        # Check for duplicate names among existing entries
-        for existing_entry in self.hass.config_entries.async_entries(DOMAIN):
-            if existing_entry.data.get("name") == user_input["name"]:
-                return self.async_abort(reason="already_configured")
-
-        # Generate a unique ID for this new entry
-        new_unique_id = str(uuid.uuid4())
-        await self.async_set_unique_id(new_unique_id)
+        # Use the name as the unique ID so duplicate names are detected by the
+        # standard config-entry uniqueness check.
+        await self.async_set_unique_id(name)
+        self._abort_if_unique_id_configured()
 
         return self.async_create_entry(
-            title=user_input["name"],
-            data=user_input,
+            title=name,
+            data={
+                **user_input,
+                "name": name,
+            },
         )
 
     def _get_schema(self) -> probatio.Schema:
@@ -77,7 +79,7 @@ class FanThermostatConfigFlow(ConfigFlow, domain=DOMAIN):
             {
                 probatio.Required("name"): str,
                 probatio.Required("temperature_sensors"): _create_entity_selector("sensor"),
-                probatio.Required("fan_controllers"): _create_entity_selector("fan"),
+                probatio.Optional("fan_controllers"): _create_entity_selector("fan"),
                 probatio.Optional("motion_sensors"): _create_entity_selector("binary_sensor"),
                 probatio.Optional("switches"): _create_entity_selector("switch"),
             }
