@@ -7,7 +7,6 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
-from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import (
@@ -15,6 +14,7 @@ from .const import (
     DEFAULT_MOTION_TIMEOUT,
     DEFAULT_RETRIGGER_TIME,
     DOMAIN,
+    get_device_info,
 )
 from .controller import FanThermostatController
 
@@ -86,12 +86,7 @@ class FanThermostatNumberEntity(NumberEntity):
         self._attr_unique_id = f"{base_uid}_{self._key}"
 
         # Use the device name (config entry title), not the entity name
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, config_entry.entry_id)},
-            name=config_entry.data.get("name", "Fan Thermostat"),
-            manufacturer="Fan Thermostat",
-            model="Configuration",
-        )
+        self._attr_device_info = get_device_info(config_entry, config_entry.data.get("name", "Fan Thermostat"))
 
     @property
     def native_min_value(self) -> float:

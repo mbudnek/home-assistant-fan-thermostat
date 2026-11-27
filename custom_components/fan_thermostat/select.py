@@ -4,10 +4,9 @@ from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
-from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import DOMAIN
+from .const import DOMAIN, get_device_info
 from .controller import FanThermostatController
 
 TEMPERATURE_OPERATION_OPTIONS = ["min", "max", "avg"]
@@ -41,12 +40,7 @@ class FanThermostatTemperatureOperation(SelectEntity):
         self._config_entry = config_entry
         base_uid = config_entry.unique_id or config_entry.entry_id
         self._attr_unique_id = f"{base_uid}_temperature_operation"
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, config_entry.entry_id)},
-            name=config_entry.data.get("name", "Fan Thermostat"),
-            manufacturer="Fan Thermostat",
-            model="Configuration",
-        )
+        self._attr_device_info = get_device_info(config_entry, config_entry.data.get("name", "Fan Thermostat"))
 
     @property
     def current_option(self) -> str:
