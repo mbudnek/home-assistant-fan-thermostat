@@ -21,6 +21,7 @@ from homeassistant.core import (
     State,
     callback,
 )
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.event import async_call_later, async_track_state_change_event
 from homeassistant.helpers.restore_state import RestoreEntity
@@ -261,16 +262,12 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
             except ValueError:
                 # Unavailable/unknown/invalid state at shutdown - fall back to FAN_ONLY
                 self._hvac_mode = HVACMode.FAN_ONLY
-            try:
-                # Restore target temperature range from previous state
-                saved_low = last_state.attributes.get("target_temp_low")
-                if saved_low is not None:
-                    self._target_temp_low = float(saved_low)
-                saved_high = last_state.attributes.get("target_temp_high")
-                if saved_high is not None:
-                    self._target_temp_high = float(saved_high)
-            except TypeError, ValueError:
-                pass
+            # Target temperatures are not restored from the state cache: the
+            # cache stores display-unit (hass-unit) values, not native
+            # Fahrenheit, so applying them would shift the setpoints on
+            # non-Fahrenheit instances. The range lives in the config entry
+            # (persisted by async_set_temperature) and is read from there at
+            # construction time.
 
         # Subscribe to temperature sensors
         for sensor_id in self._temperature_sensor_ids:
@@ -801,6 +798,24 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
             self._target_temp_low = float(target_temp_low)
         if (target_temp_high := kwargs.get("target_temp_high")) is not None:
             self._target_temp_high = float(target_temp_high)
+
+        # The range must stay ordered: the low setpoint must not exceed the
+        # high. (The service handler validates the values passed with the
+        # call; this guards a value against the one already configured.)
+        if self._target_temp_low > self._target_temp_high:
+            raise ServiceValidationError("Invalid target temperature range: low setpoint must not exceed high setpoint")
+
+        # Persist the range to the config entry so it survives restarts. The
+        # constructor reads it back on setup; the state cache is not used for
+        # this (see async_added_to_hass).
+        self.hass.config_entries.async_update_entry(
+            self._config_entry,
+            data={
+                **self._config_entry.data,
+                "target_temp_low": self._target_temp_low,
+                "target_temp_high": self._target_temp_high,
+            },
+        )
 
         # Temperature change affects fan speed, so recalculate. Service
         # calls set the entity's context to the caller's context; use it as

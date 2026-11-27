@@ -2,6 +2,7 @@
 
 from datetime import timedelta
 
+import pytest
 from homeassistant.components.climate import (
     ATTR_HVAC_MODE,
     SERVICE_SET_HVAC_MODE,
@@ -1189,3 +1190,80 @@ async def test_external_change_links_override_switch_state_write_to_external_eve
     assert switch_state.context.id != external_context_id
     # ...and it is not a marker context (the event is not ours)
     assert not isinstance(switch_state.context, _ControlPassContext)
+
+
+async def test_set_temperature_persists_to_config_entry(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Test that setting the target temperature range is persisted to the config entry."""
+    await setup_integration(hass, mock_config_entry)
+
+    await hass.services.async_call(
+        CLIMATE_DOMAIN,
+        SERVICE_SET_TEMPERATURE,
+        {
+            ATTR_ENTITY_ID: "climate.bedroom_fan_thermostat",
+            "target_temp_low": 70.0,
+            "target_temp_high": 80.0,
+        },
+        blocking=True,
+    )
+
+    assert mock_config_entry.data["target_temp_low"] == 70.0
+    assert mock_config_entry.data["target_temp_high"] == 80.0
+
+
+async def test_set_temperature_rejects_degenerate_range(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Test that the entity rejects a range whose low setpoint exceeds the high."""
+    from homeassistant.exceptions import ServiceValidationError
+
+    from custom_components.fan_thermostat.const import DOMAIN
+
+    await setup_integration(hass, mock_config_entry)
+
+    controller = hass.data[DOMAIN][mock_config_entry.entry_id]
+    entity = controller.climate
+    assert entity is not None
+
+    # Raising the low setpoint above the existing high (78) must fail.
+    with pytest.raises(ServiceValidationError):
+        await entity.async_set_temperature(target_temp_low=80.0)
+
+    # The configured range is untouched: no half-applied state.
+    assert mock_config_entry.data["target_temp_low"] == 72.0
+    assert mock_config_entry.data["target_temp_high"] == 78.0
+
+
+async def test_set_temperature_survives_reload(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Test that the set target temperature range is kept across a reload."""
+    await setup_integration(hass, mock_config_entry)
+
+    await hass.services.async_call(
+        CLIMATE_DOMAIN,
+        SERVICE_SET_TEMPERATURE,
+        {
+            ATTR_ENTITY_ID: "climate.bedroom_fan_thermostat",
+            "target_temp_low": 70.0,
+            "target_temp_high": 80.0,
+        },
+        blocking=True,
+    )
+
+    # Simulate a restart: unload the entry and set it up again.
+    assert await hass.config_entries.async_unload(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
+    assert climate_state.attributes["target_temp_low"] == 70.0
+    assert climate_state.attributes["target_temp_high"] == 80.0
