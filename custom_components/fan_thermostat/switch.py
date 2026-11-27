@@ -66,14 +66,9 @@ class FanThermostatManualOverride(SwitchEntity, RestoreEntity):
         self._config_entry = config_entry
         uid = config_entry.unique_id or config_entry.entry_id
         self._attr_unique_id = f"{uid}_override"
-        self._attr_device_info = self._get_device_info(config_entry, name)
+        self._attr_device_info = get_device_info(config_entry, name)
         self._is_on = False
         self._auto_clear_cancel: Callable[[], None] | None = None
-
-    @staticmethod
-    def _get_device_info(config_entry: ConfigEntry, name: str):
-        """Get device info for the thermostat."""
-        return get_device_info(config_entry, name)
 
     @property
     def _manual_override_time(self) -> int:
@@ -84,11 +79,6 @@ class FanThermostatManualOverride(SwitchEntity, RestoreEntity):
     def is_on(self) -> bool:
         """Return true if manual override is active."""
         return self._is_on
-
-    @property
-    def available(self) -> bool:
-        """Return True if entity is available."""
-        return True
 
     async def async_added_to_hass(self) -> None:
         """When entity is added to hass."""

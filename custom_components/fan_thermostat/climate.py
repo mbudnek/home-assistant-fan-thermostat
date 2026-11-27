@@ -10,7 +10,7 @@ from homeassistant.components.climate import (
     HVACMode,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import ATTR_TEMPERATURE, PRECISION_TENTHS, UnitOfTemperature
+from homeassistant.const import PRECISION_TENTHS, UnitOfTemperature
 from homeassistant.core import Context, Event, HomeAssistant, callback
 from homeassistant.helpers.event import async_call_later, async_track_state_change_event
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -56,12 +56,6 @@ async def async_setup_entry(
     motion_sensor_ids: list[str] = config_entry.data.get("motion_sensors", [])
     switch_ids: list[str] = config_entry.data.get("switches", [])
 
-    retrigger_time: int = config_entry.data.get(
-        "retrigger_time", DEFAULT_RETRIGGER_TIME
-    )
-    motion_timeout: int = config_entry.data.get(
-        "motion_timeout", DEFAULT_MOTION_TIMEOUT
-    )
     entity = FanThermostatClimate(
         config_entry=config_entry,
         name=name,
@@ -69,8 +63,6 @@ async def async_setup_entry(
         fan_controller_ids=fan_controller_ids,
         motion_sensor_ids=motion_sensor_ids,
         switch_ids=switch_ids,
-        retrigger_time=retrigger_time,
-        motion_timeout=motion_timeout,
     )
     async_add_entities([entity])
 
@@ -133,14 +125,12 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
         fan_controller_ids: list[str],
         motion_sensor_ids: list[str],
         switch_ids: list[str],
-        retrigger_time: int,
-        motion_timeout: int,
     ) -> None:
         """Initialize the Fan Thermostat climate entity."""
         super().__init__()
         self._config_entry = config_entry
         self._attr_unique_id = f"{config_entry.unique_id}_climate" if config_entry.unique_id else f"{config_entry.entry_id}_climate"
-        self._attr_device_info = self._get_device_info(config_entry, name)
+        self._attr_device_info = get_device_info(config_entry, name)
 
         self._temperature_sensor_ids = temperature_sensor_ids
         self._fan_controller_ids = fan_controller_ids
@@ -161,11 +151,6 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
         self._target_temp_high: float = config_entry.data.get(
             "target_temp_high", DEFAULT_TARGET_TEMP_HIGH
         )
-
-    @staticmethod
-    def _get_device_info(config_entry: ConfigEntry, name: str):
-        """Get device info for the thermostat."""
-        return get_device_info(config_entry, name)
 
     @property
     def hvac_mode(self) -> HVACMode:
@@ -196,19 +181,10 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
         # Fan is off but mode is FAN_ONLY - within target range, so IDLE
         return HVACAction.IDLE
 
-    @property
-    def percentage(self) -> int | None:
-        desired = self._desired_percentage()
-        return desired if desired > 0 else None
-
     def _manual_override_active(self) -> bool:
         """Return True if the override switch is on (the switch owns the state)."""
         controller = self._get_controller()
         return controller is not None and controller.switch is not None and controller.switch.is_on
-
-    @property
-    def is_on(self) -> bool:
-        return self._desired_percentage() > 0
 
     @property
     def available(self) -> bool:
@@ -240,11 +216,6 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
         return self._compute_temperature()
 
     @property
-    def native_target_temperature(self) -> float | None:
-        # For backward compatibility, return the low value when single temp is expected
-        return self._target_temp_low
-
-    @property
     def native_target_temperature_low(self) -> float | None:
         """Return the target temperature low."""
         return self._target_temp_low
@@ -253,18 +224,6 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
     def native_target_temperature_high(self) -> float | None:
         """Return the target temperature high."""
         return self._target_temp_high
-
-    @property
-    def native_temperature_unit(self) -> str:
-        return UnitOfTemperature.FAHRENHEIT
-
-    @property
-    def min_temp(self) -> float:
-        return 45
-
-    @property
-    def max_temp(self) -> float:
-        return 95
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -776,11 +735,7 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
             self._target_temp_low = float(target_temp_low)
         if (target_temp_high := kwargs.get("target_temp_high")) is not None:
             self._target_temp_high = float(target_temp_high)
-        
-        # Also support legacy single temperature attribute for backward compatibility
-        if (temperature := kwargs.get(ATTR_TEMPERATURE)) is not None:
-            self._target_temp_low = float(temperature)
-        
+
         # Temperature change affects fan speed, so recalculate. Service
         # calls set the entity's context to the caller's context; use it as
         # the parent so the trace links the caller to the fans.
