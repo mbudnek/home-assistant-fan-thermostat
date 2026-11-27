@@ -1277,3 +1277,58 @@ async def test_set_temperature_survives_reload(
     assert climate_state is not None
     assert climate_state.attributes["target_temp_low"] == 70.0
     assert climate_state.attributes["target_temp_high"] == 80.0
+
+
+async def test_startup_pass_respects_restored_override(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Test that the first control pass does not command fans while a restored override is active."""
+    recorded = []
+
+    async def _handle_set_percentage(call: ServiceCall) -> None:
+        recorded.append(("set_percentage", call.data.get("entity_id"), call.data.get("percentage")))
+
+    hass.services.async_register("fan", "set_percentage", _handle_set_percentage)
+
+    # Override was on at shutdown (10s into a 300s override).
+    mock_restore_cache(
+        hass,
+        [
+            State(
+                "switch.bedroom_fan_thermostat_manual_override",
+                "on",
+                last_changed=dt_util.utcnow() - timedelta(seconds=10),
+            )
+        ],
+    )
+
+    # Temperature above the high setpoint: the pass would command full speed.
+    hass.states.async_set("sensor.bedroom_temp", "85.0", {"device_class": "temperature"})
+    await setup_integration(hass, mock_config_entry)
+
+    assert recorded == []
+
+    # The restored override is active.
+    switch_state = hass.states.get("switch.bedroom_fan_thermostat_manual_override")
+    assert switch_state is not None
+    assert switch_state.state == STATE_ON
+
+
+async def test_startup_pass_commands_fans_when_no_override_restored(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Test that the first control pass commands fans on startup when nothing is overridden."""
+    recorded = []
+
+    async def _handle_set_percentage(call: ServiceCall) -> None:
+        recorded.append(("set_percentage", call.data.get("entity_id"), call.data.get("percentage")))
+
+    hass.services.async_register("fan", "set_percentage", _handle_set_percentage)
+
+    # Temperature above the high setpoint: the pass commands full speed.
+    hass.states.async_set("sensor.bedroom_temp", "85.0", {"device_class": "temperature"})
+    await setup_integration(hass, mock_config_entry)
+
+    assert ("set_percentage", "fan.bedroom_fan", 100) in recorded

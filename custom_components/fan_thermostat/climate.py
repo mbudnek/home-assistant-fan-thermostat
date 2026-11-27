@@ -287,6 +287,19 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
         # Control fans on startup. The desired speed is recalculated from the
         # current state of the sensors - the fan's speed is never recovered
         # from the previous session (fans may cycle off/on on reboot).
+        #
+        # The pass is deferred until the manual override switch is ready:
+        # the switch restores its override state during setup, and the first
+        # pass must run with that restored override in place (otherwise the
+        # fans can be commanded on while the override is active).
+        controller = self._get_controller()
+        if controller is not None:
+            controller.add_startup_callback(self._startup_control_pass)
+        else:
+            self._startup_control_pass()
+
+    def _startup_control_pass(self) -> None:
+        """Run the first control pass and write the state."""
         self._control_fans(self._new_trigger_context())
         self.async_write_ha_state()
 

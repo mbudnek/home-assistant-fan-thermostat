@@ -90,13 +90,26 @@ class FanThermostatManualOverride(SwitchEntity, RestoreEntity):
         controller = self._get_controller()
         if controller is not None:
             controller.switch = self
-        # Restore last state: if the switch was on at shutdown, restore the
-        # override and re-arm the auto-clear timer. Only the time remaining
-        # at shutdown is re-armed - the override must not outlive the
-        # configured duration - and an override that already expired while
-        # the instance was down is not restored at all. The climate entity
-        # queries this switch's state for its control passes, so it picks up
-        # the restored override automatically.
+        try:
+            await self._restore_override(controller)
+        finally:
+            # The climate's first control pass runs once the switch is ready,
+            # so the restored override is in place before the fans are
+            # commanded. Mark the switch ready even if the restore raised so
+            # the climate is never stuck waiting for it.
+            if controller is not None:
+                controller.mark_switch_ready()
+
+    async def _restore_override(self, controller: FanThermostatController | None) -> None:
+        """Restore the manual override from the last state.
+
+        If the switch was on at shutdown, restore the override and re-arm the
+        auto-clear timer. Only the time remaining at shutdown is re-armed -
+        the override must not outlive the configured duration - and an
+        override that already expired while the instance was down is not
+        restored at all. The climate entity queries this switch's state for
+        its control passes, so it picks up the restored override automatically.
+        """
         last_state = await self.async_get_last_state()
         if last_state is not None and last_state.state == "on":
             manual_override_time = self._manual_override_time
