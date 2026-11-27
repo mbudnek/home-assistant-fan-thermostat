@@ -6,7 +6,7 @@
   ],
   "config_flow": true,
   "documentation": "https://www.home-assistant.io/integrations/fan_thermostat",
-  "integration_type": "integration",
+  "integration_type": "device",
   "iot_class": "local_push",
   "requirements": [],
   "version": "1.0.0"
