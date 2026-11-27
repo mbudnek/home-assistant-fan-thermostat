@@ -10,6 +10,7 @@ control when the override is cleared.
 
 import logging
 from collections.abc import Callable
+from datetime import datetime
 from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
@@ -168,7 +169,7 @@ class FanThermostatManualOverride(SwitchEntity, RestoreEntity):
             self._auto_clear_cancel = None
 
     @callback
-    def _auto_clear_callback(self, _time) -> None:
+    def _auto_clear_callback(self, _time: datetime) -> None:
         """The override time elapsed: clear the override and resume control."""
         self._auto_clear_cancel = None
         self.exit()

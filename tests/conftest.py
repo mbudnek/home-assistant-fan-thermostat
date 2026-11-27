@@ -42,7 +42,7 @@ if _self_pipe_send_blocked():
     _DEFAULT_EXECUTOR_SHUTDOWN_TIMEOUT = 1.0
     _orig_shutdown_default_executor = asyncio.base_events.BaseEventLoop.shutdown_default_executor
 
-    async def _bounded_shutdown_default_executor(self, timeout=None):
+    async def _bounded_shutdown_default_executor(self: asyncio.BaseEventLoop, timeout: float | None = None) -> None:
         """Bound the executor shutdown wait when no timeout is given.
 
         pytest-homeassistant's autouse ``verify_cleanup`` fixture calls
@@ -208,7 +208,7 @@ def hass(hass: HomeAssistant) -> Iterator[HomeAssistant]:
     yield hass
 
 
-def pytest_configure(config):
+def pytest_configure(config: pytest.Config) -> None:
     """Fail fast when sockets/network are blocked (e.g. sandboxed environments).
 
     Without this, every test would error out one-by-one with 5s+ of timeout

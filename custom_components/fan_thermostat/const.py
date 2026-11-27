@@ -1,5 +1,8 @@
 """Constants for the Fan Thermostat integration."""
 
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.helpers.device_registry import DeviceInfo
+
 DOMAIN = "fan_thermostat"
 
 # Default configuration values
@@ -19,11 +22,9 @@ DEFAULT_TARGET_TEMP_HIGH = 78.0  # Default upper setpoint (fan at full speed)
 STARTUP_GRACE_SECONDS = 10
 
 
-def get_device_info(config_entry, name: str):
+def get_device_info(config_entry: ConfigEntry, name: str) -> DeviceInfo:
     """Get device info for a Fan Thermostat config entry."""
-    from homeassistant.helpers import device_registry as dr
-
-    return dr.DeviceInfo(
+    return DeviceInfo(
         identifiers={(DOMAIN, config_entry.entry_id)},
         name=name,
         manufacturer="Fan Thermostat",

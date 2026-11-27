@@ -13,7 +13,14 @@ from homeassistant.components.climate import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import PRECISION_TENTHS, STATE_OFF, STATE_ON, UnitOfTemperature
-from homeassistant.core import Context, Event, HomeAssistant, State, callback
+from homeassistant.core import (
+    Context,
+    Event,
+    EventStateChangedData,
+    HomeAssistant,
+    State,
+    callback,
+)
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.event import async_call_later, async_track_state_change_event
 from homeassistant.helpers.restore_state import RestoreEntity
@@ -306,7 +313,7 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
         return None
 
     @callback
-    def _on_state_changed(self, event) -> None:
+    def _on_state_changed(self, event: Event[EventStateChangedData]) -> None:
         """Handle state change events from sensors."""
         entity_id = event.data.get("entity_id")
         new_state = event.data.get("new_state")
@@ -379,7 +386,7 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
                 return True
         return False
 
-    def _motion_present_before_event(self, entity_id: str, old_state) -> bool:
+    def _motion_present_before_event(self, entity_id: str, old_state: State | None) -> bool:
         """Return True if any configured motion sensor reported motion before this event."""
         for sensor_id in self._motion_sensor_ids:
             if sensor_id == entity_id:
@@ -404,14 +411,14 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
         return self._motion_present_now() or self._motion_cancel is not None
 
     @callback
-    def _handle_motion_timeout_elapsed(self, _time) -> None:
+    def _handle_motion_timeout_elapsed(self, _time: datetime) -> None:
         """Motion has been inactive for the configured timeout."""
         self._motion_cancel = None
         self._control_fans(self._new_trigger_context())
         self.async_write_ha_state()
 
     @callback
-    def _handle_retrigger_elapsed(self, _time) -> None:
+    def _handle_retrigger_elapsed(self, _time: datetime) -> None:
         """Retrigger window elapsed: fans may turn back on if motion and temperature warrant."""
         self._retrigger_cancel = None
         self._control_fans(self._new_trigger_context())
@@ -576,7 +583,7 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
         for sw_id in self._switch_ids:
             self._call_service("switch", "turn_off", {"entity_id": sw_id}, context)
 
-    def _handle_external_change(self, entity_id: str, event: Event) -> None:
+    def _handle_external_change(self, entity_id: str, event: Event[EventStateChangedData]) -> None:
         """Handle changes to fan controllers or switches from external sources.
 
         When an external source (wall switch, automation, etc.) toggles a fan/switch,
@@ -651,7 +658,7 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
         except TypeError, ValueError:
             return None
 
-    def _matches_desired_state(self, entity_id: str, event: Event) -> bool:
+    def _matches_desired_state(self, entity_id: str, event: Event[EventStateChangedData]) -> bool:
         """Return True if the reported state is consistent with the desired state.
 
         Fans are compared by exact percentage: the reported value must equal

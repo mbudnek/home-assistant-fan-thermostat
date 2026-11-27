@@ -48,7 +48,23 @@ target-version = "py314"
 line-length = 120
 
 [tool.ruff.lint]
-select = ["E", "W", "F", "I", "UP", "B"]
+# ANN401 (no `Any`) is deliberately left out: Home Assistant's own base classes
+# declare `**kwargs: Any` (e.g. `async_set_temperature`, `async_turn_on`), and
+# overriding those with a narrower value type would break signature compatibility
+# with the base class.
+select = [
+    "E",  # pycodestyle errors: PEP 8 style violations
+    "W",  # pycodestyle warnings: formatting warnings (e.g. trailing whitespace)
+    "F",  # pyflakes: unused imports/variables, undefined names, etc.
+    "I",  # isort: import sorting and grouping
+    "UP", # pyupgrade: modernize syntax (e.g. `X | Y` unions, f-strings)
+    "B",  # flake8-bugbear: likely bugs and design issues
+    "ANN001", # missing type annotation for a function argument
+    "ANN002", # missing type annotation for a *args parameter
+    "ANN003", # missing type annotation for a **kwargs parameter
+    "ANN201", # missing return type annotation for a public function
+    "ANN202", # missing return type annotation for a private function
+]
 
 [tool.ruff.lint.per-file-ignores]
 # Tests need to put `custom_components/` on sys.path before importing the

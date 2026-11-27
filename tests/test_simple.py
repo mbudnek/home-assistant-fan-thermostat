@@ -7,7 +7,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "custom_components"))
 
 
-def test_manifest():
+def test_manifest() -> None:
     """Test that the manifest.json is valid."""
     import json
 
@@ -24,7 +24,7 @@ def test_manifest():
     assert manifest.get("integration_type", "integration") in ("integration", None)
 
 
-def test_const():
+def test_const() -> None:
     """Test that the const.py exports the expected values."""
     from fan_thermostat.const import (
         DEFAULT_MANUAL_OVERRIDE_TIME,
@@ -43,28 +43,28 @@ def test_const():
     assert DEFAULT_TARGET_TEMP_HIGH == 78.0
 
 
-def test_climate_module():
+def test_climate_module() -> None:
     """Test that the climate module can be imported."""
     from fan_thermostat import climate
 
     assert hasattr(climate, "FanThermostatClimate")
 
 
-def test_config_flow_module():
+def test_config_flow_module() -> None:
     """Test that the config_flow module can be imported."""
     from fan_thermostat import config_flow
 
     assert hasattr(config_flow, "FanThermostatConfigFlow")
 
 
-def test_switch_module():
+def test_switch_module() -> None:
     """Test that the switch module can be imported."""
     from fan_thermostat import switch
 
     assert hasattr(switch, "FanThermostatManualOverride")
 
 
-def test_init_module():
+def test_init_module() -> None:
     """Test that the __init__ module can be imported."""
     import fan_thermostat
 

@@ -19,7 +19,14 @@ from homeassistant.const import (
     STATE_OFF,
     STATE_ON,
 )
-from homeassistant.core import EVENT_STATE_CHANGED, HomeAssistant, State
+from homeassistant.core import (
+    EVENT_STATE_CHANGED,
+    Event,
+    EventStateChangedData,
+    HomeAssistant,
+    ServiceCall,
+    State,
+)
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant.common import (
@@ -444,10 +451,10 @@ async def test_manual_override_exit_turns_off_fan_when_fan_is_on(
     """
     recorded = []
 
-    async def _handle_turn_off(call):
+    async def _handle_turn_off(call: ServiceCall) -> None:
         recorded.append(("turn_off", call.data.get("entity_id")))
 
-    async def _handle_set_percentage(call):
+    async def _handle_set_percentage(call: ServiceCall) -> None:
         recorded.append(("set_percentage", call.data.get("percentage")))
 
     hass.services.async_register("fan", "turn_off", _handle_turn_off)
@@ -494,7 +501,7 @@ async def test_manual_override_exit_changes_fan_speed_when_fan_is_on(
     """
     recorded = []
 
-    async def _handle_set_percentage(call):
+    async def _handle_set_percentage(call: ServiceCall) -> None:
         recorded.append(call.data.get("percentage"))
 
     hass.services.async_register("fan", "set_percentage", _handle_set_percentage)
@@ -539,7 +546,7 @@ async def test_manual_override_exit_turns_fan_on_when_fan_is_off(
     """
     recorded = []
 
-    async def _handle_set_percentage(call):
+    async def _handle_set_percentage(call: ServiceCall) -> None:
         recorded.append(call.data.get("percentage"))
 
     hass.services.async_register("fan", "set_percentage", _handle_set_percentage)
@@ -760,7 +767,7 @@ async def test_fan_service_calls_are_made(
     """Test that fan controllers receive set_percentage service calls."""
     recorded = []
 
-    async def _handle_set_percentage(call):
+    async def _handle_set_percentage(call: ServiceCall) -> None:
         recorded.append(("set_percentage", call.data.get("entity_id"), call.data.get("percentage")))
 
     hass.services.async_register("fan", "set_percentage", _handle_set_percentage)
@@ -875,7 +882,7 @@ async def test_external_change_enters_manual_override(
 ) -> None:
     """Test that external fan/switch changes trigger manual override; self-initiated changes do not."""
 
-    async def _handle_set_percentage(call):
+    async def _handle_set_percentage(call: ServiceCall) -> None:
         hass.states.async_set(
             call.data["entity_id"],
             "on",
@@ -1014,7 +1021,7 @@ async def test_self_initiated_out_of_order_calls_do_not_enter_override(
 
     hold = asyncio.Event()
 
-    async def _handle_set_percentage(call):
+    async def _handle_set_percentage(call: ServiceCall) -> None:
         await hold.wait()
         hass.states.async_set(
             call.data["entity_id"],
@@ -1060,7 +1067,7 @@ async def test_control_pass_shares_one_context_parented_to_triggering_event(
     call_context_ids = []
     sensor_context_ids = []
 
-    async def _handle_set_percentage(call):
+    async def _handle_set_percentage(call: ServiceCall) -> None:
         call_context_ids.append(call.context.id)
         hass.states.async_set(
             call.data["entity_id"],
@@ -1073,7 +1080,7 @@ async def test_control_pass_shares_one_context_parented_to_triggering_event(
 
     await setup_integration(hass, mock_config_entry)
 
-    def _listener(event):
+    def _listener(event: Event[EventStateChangedData]) -> None:
         if event.data.get("entity_id") == "sensor.bedroom_temp":
             sensor_context_ids.append(event.context.id)
 
@@ -1112,7 +1119,7 @@ async def test_self_initiated_events_carry_pass_marker_context(
 
     event_contexts = []
 
-    async def _handle_set_percentage(call):
+    async def _handle_set_percentage(call: ServiceCall) -> None:
         hass.states.async_set(
             call.data["entity_id"],
             "on",
@@ -1124,7 +1131,7 @@ async def test_self_initiated_events_carry_pass_marker_context(
 
     await setup_integration(hass, mock_config_entry)
 
-    def _listener(event):
+    def _listener(event: Event[EventStateChangedData]) -> None:
         if event.data.get("entity_id") == "fan.bedroom_fan":
             event_contexts.append(event.context)
 
@@ -1153,7 +1160,7 @@ async def test_external_change_links_override_switch_state_write_to_external_eve
 
     external_context_ids = []
 
-    def _listener(event):
+    def _listener(event: Event[EventStateChangedData]) -> None:
         if event.data.get("entity_id") == "fan.bedroom_fan":
             external_context_ids.append(event.context.id)
 
