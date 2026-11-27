@@ -10,7 +10,7 @@ control when the override is cleared.
 
 import logging
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
@@ -91,14 +91,30 @@ class FanThermostatManualOverride(SwitchEntity, RestoreEntity):
         if controller is not None:
             controller.switch = self
         # Restore last state: if the switch was on at shutdown, restore the
-        # override and re-arm the auto-clear timer. The climate entity
+        # override and re-arm the auto-clear timer. Only the time remaining
+        # at shutdown is re-armed - the override must not outlive the
+        # configured duration - and an override that already expired while
+        # the instance was down is not restored at all. The climate entity
         # queries this switch's state for its control passes, so it picks up
         # the restored override automatically.
         last_state = await self.async_get_last_state()
         if last_state is not None and last_state.state == "on":
-            self._is_on = True
-            self._schedule_auto_clear()
-            self._notify_climate()
+            manual_override_time = self._manual_override_time
+            elapsed = self._elapsed_since_change(last_state)
+            remaining = manual_override_time - elapsed if elapsed is not None else None
+
+            if manual_override_time <= 0:
+                # Auto-expiry disabled: restore the override without a timer.
+                self._is_on = True
+                self._notify_climate()
+            elif remaining is not None and remaining <= 0:
+                # The override expired while the instance was down: do not
+                # restore it.
+                pass
+            else:
+                self._is_on = True
+                self._schedule_auto_clear(remaining if remaining is not None else manual_override_time)
+                self._notify_climate()
 
     async def async_will_remove_from_hass(self) -> None:
         """When entity will be removed from hass."""
@@ -146,16 +162,34 @@ class FanThermostatManualOverride(SwitchEntity, RestoreEntity):
         if key == "manual_override_time" and self._is_on:
             self._reschedule_auto_clear()
 
-    def _schedule_auto_clear(self) -> None:
-        """Schedule the automatic clear of manual override."""
-        if self._manual_override_time <= 0:
+    def _schedule_auto_clear(self, delay: float | None = None) -> None:
+        """Schedule the automatic clear of manual override.
+
+        ``delay`` overrides the configured manual_override_time for this
+        timer (used when restoring an override: only the time remaining at
+        shutdown is re-armed).
+        """
+        duration = self._manual_override_time if delay is None else delay
+        if duration <= 0:
             return
         self._cancel_auto_clear()
         self._auto_clear_cancel = async_call_later(
             self.hass,
-            self._manual_override_time,
+            duration,
             self._auto_clear_callback,
         )
+
+    def _elapsed_since_change(self, last_state: Any) -> float | None:
+        """Seconds elapsed since the last state change, or None if unknown."""
+        last_changed = last_state.last_changed
+        if last_changed is None:
+            return None
+        try:
+            if last_changed.tzinfo is None:
+                last_changed = last_changed.replace(tzinfo=UTC)
+            return (datetime.now(UTC) - last_changed).total_seconds()
+        except TypeError, ValueError:
+            return None
 
     def _reschedule_auto_clear(self) -> None:
         """Re-arm the auto-clear timer with the current time."""
