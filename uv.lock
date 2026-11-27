@@ -887,7 +887,7 @@ wheels = [
 [[package]]
 name = "fan-thermostat"
 version = "1.0.0"
-source = { editable = "." }
+source = { virtual = "." }
 
 [package.dev-dependencies]
 dev = [

@@ -11,6 +11,13 @@ DEFAULT_MANUAL_OVERRIDE_TIME = 0
 DEFAULT_TARGET_TEMP_LOW = 72.0  # Default lower setpoint (fan starts here)
 DEFAULT_TARGET_TEMP_HIGH = 78.0  # Default upper setpoint (fan at full speed)
 
+# How long after the climate entity is set up to ignore external fan/switch
+# state events. Fan/switch integrations report their own state when they boot;
+# those boot reports were not requested by the thermostat and must not be
+# mistaken for a user-initiated change (which would flip the manual override
+# switch on at startup).
+STARTUP_GRACE_SECONDS = 10
+
 
 def get_device_info(config_entry, name: str):
     """Get device info for a Fan Thermostat config entry."""

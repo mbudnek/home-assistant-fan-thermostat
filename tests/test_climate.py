@@ -28,7 +28,15 @@ from pytest_homeassistant.common import (
     mock_restore_cache,
 )
 
+from custom_components.fan_thermostat.const import STARTUP_GRACE_SECONDS
+
 from . import setup_integration
+
+
+async def _advance_past_startup_window(hass: HomeAssistant) -> None:
+    """Fire time forward past the startup grace window so external-change detection resumes."""
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=STARTUP_GRACE_SECONDS + 1))
+    await hass.async_block_till_done()
 
 
 async def test_climate_entity_exists(
@@ -452,6 +460,7 @@ async def test_manual_override_exit_turns_off_fan_when_fan_is_on(
     await hass.async_block_till_done()
 
     # User turns the physical fan on (external change)
+    await _advance_past_startup_window(hass)
     hass.states.async_set("fan.bedroom_fan", "on", {"percentage": 100})
     await hass.async_block_till_done()
 
@@ -500,6 +509,7 @@ async def test_manual_override_exit_changes_fan_speed_when_fan_is_on(
     assert climate_state.attributes.get("percentage") == 50
 
     # User manually sets the fan to 100% (external change)
+    await _advance_past_startup_window(hass)
     hass.states.async_set("fan.bedroom_fan", "on", {"percentage": 100})
     await hass.async_block_till_done()
 
@@ -541,6 +551,7 @@ async def test_manual_override_exit_turns_fan_on_when_fan_is_off(
     await hass.async_block_till_done()
 
     # User manually turns the fan off (external change)
+    await _advance_past_startup_window(hass)
     hass.states.async_set("fan.bedroom_fan", "off", {"percentage": 0})
     await hass.async_block_till_done()
 
@@ -886,12 +897,106 @@ async def test_external_change_enters_manual_override(
     assert switch_state.state == STATE_OFF
 
     # External change to the fan drives the thermostat into manual override
+    await _advance_past_startup_window(hass)
     hass.states.async_set("fan.bedroom_fan", "off", {"percentage": 0})
     await hass.async_block_till_done()
 
     switch_state = hass.states.get("switch.bedroom_fan_thermostat_manual_override")
     assert switch_state is not None
     assert switch_state.state == STATE_ON
+
+
+async def test_startup_boot_report_within_window_is_ignored(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """A fan/switch boot report (startup, unrequested) must not enter manual override.
+
+    The reported state is deliberately mismatched with the desired state
+    (fan reports on while the thermostat wants 0%): the only thing that
+    saves the thermostat from manual override here is the startup window.
+    """
+    await setup_integration(hass, mock_config_entry)
+
+    hass.states.async_set("fan.bedroom_fan", "on", {"percentage": 33})
+    await hass.async_block_till_done()
+
+    switch_state = hass.states.get("switch.bedroom_fan_thermostat_manual_override")
+    assert switch_state is not None
+    assert switch_state.state == STATE_OFF
+
+
+async def test_report_matching_desired_speed_is_ignored_after_window(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """A fan report consistent with the thermostat's desired speed is not an external change."""
+    await setup_integration(hass, mock_config_entry)
+
+    # Temp 85 -> thermostat wants 100%
+    hass.states.async_set("sensor.bedroom_temp", "85.0", {"device_class": "temperature"})
+    await hass.async_block_till_done()
+
+    await _advance_past_startup_window(hass)
+
+    # The fan reports exactly what the thermostat would command: no override
+    hass.states.async_set("fan.bedroom_fan", "on", {"percentage": 100})
+    await hass.async_block_till_done()
+
+    switch_state = hass.states.get("switch.bedroom_fan_thermostat_manual_override")
+    assert switch_state is not None
+    assert switch_state.state == STATE_OFF
+
+
+async def test_report_matching_desired_off_state_is_ignored_after_window(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """An off-at-startup report matching the desired 0% is never an external change."""
+    await setup_integration(hass, mock_config_entry)
+
+    await _advance_past_startup_window(hass)
+
+    # No temperature reading -> desired 0%; fan reports off -> consistent
+    hass.states.async_set("fan.bedroom_fan", "off", {"percentage": 0})
+    await hass.async_block_till_done()
+
+    switch_state = hass.states.get("switch.bedroom_fan_thermostat_manual_override")
+    assert switch_state is not None
+    assert switch_state.state == STATE_OFF
+
+
+async def test_startup_switch_boot_report_within_window_is_ignored(
+    hass: HomeAssistant,
+    mock_config_entry_with_switches: MockConfigEntry,
+) -> None:
+    """A switch boot report (startup, unrequested) must not enter manual override."""
+    await setup_integration(hass, mock_config_entry_with_switches)
+
+    hass.states.async_set("switch.box_fan_switch", "on")
+    await hass.async_block_till_done()
+
+    switch_state = hass.states.get("switch.box_fan_thermostat_manual_override")
+    assert switch_state is not None
+    assert switch_state.state == STATE_OFF
+
+
+async def test_switch_report_matching_desired_off_state_is_ignored_after_window(
+    hass: HomeAssistant,
+    mock_config_entry_with_switches: MockConfigEntry,
+) -> None:
+    """A switch report consistent with the thermostat's desired on/off is not an external change."""
+    await setup_integration(hass, mock_config_entry_with_switches)
+
+    await _advance_past_startup_window(hass)
+
+    # No temperature reading -> desired 0% -> desired switch off; switch reports off
+    hass.states.async_set("switch.box_fan_switch", "off")
+    await hass.async_block_till_done()
+
+    switch_state = hass.states.get("switch.box_fan_thermostat_manual_override")
+    assert switch_state is not None
+    assert switch_state.state == STATE_OFF
 
 
 async def test_self_initiated_out_of_order_calls_do_not_enter_override(
@@ -1055,6 +1160,14 @@ async def test_external_change_links_override_switch_state_write_to_external_eve
     await setup_integration(hass, mock_config_entry)
     hass.bus.async_listen(EVENT_STATE_CHANGED, _listener)
 
+    # Temperature event: thermostat wants 100%. No fan service handler is
+    # registered, so this pass issues no fan state-change events - the only
+    # fan event recorded below is the deliberate external change.
+    hass.states.async_set("sensor.bedroom_temp", "85.0", {"device_class": "temperature"})
+    await hass.async_block_till_done()
+
+    await _advance_past_startup_window(hass)
+    # External change: the fan reports off (0%) while the thermostat wants 100%
     hass.states.async_set("fan.bedroom_fan", "off", {"percentage": 0})
     await hass.async_block_till_done()
 

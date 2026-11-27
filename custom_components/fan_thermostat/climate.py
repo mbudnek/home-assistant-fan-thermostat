@@ -2,6 +2,7 @@
 
 import logging
 from collections.abc import Callable
+from datetime import datetime
 from typing import Any
 
 from homeassistant.components.climate import (
@@ -11,8 +12,8 @@ from homeassistant.components.climate import (
     HVACMode,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PRECISION_TENTHS, UnitOfTemperature
-from homeassistant.core import Context, Event, HomeAssistant, callback
+from homeassistant.const import PRECISION_TENTHS, STATE_OFF, STATE_ON, UnitOfTemperature
+from homeassistant.core import Context, Event, HomeAssistant, State, callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.event import async_call_later, async_track_state_change_event
 from homeassistant.helpers.restore_state import RestoreEntity
@@ -24,6 +25,7 @@ from .const import (
     DEFAULT_TARGET_TEMP_HIGH,
     DEFAULT_TARGET_TEMP_LOW,
     DOMAIN,
+    STARTUP_GRACE_SECONDS,
     get_device_info,
 )
 from .controller import FanThermostatController
@@ -146,6 +148,7 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
         self._fans_commanded_on: bool = False
         self._retrigger_cancel: Callable[[], None] | None = None
         self._motion_cancel: Callable[[], None] | None = None
+        self._startup_ignore_timer: Callable[[], None] | None = None
         self._target_temp_low: float = config_entry.data.get("target_temp_low", DEFAULT_TARGET_TEMP_LOW)
         self._target_temp_high: float = config_entry.data.get("target_temp_high", DEFAULT_TARGET_TEMP_HIGH)
 
@@ -277,6 +280,14 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
         # Subscribe to switches
         for sw_id in self._switch_ids:
             self.async_on_remove(async_track_state_change_event(self.hass, {sw_id}, self._on_state_changed))
+
+        # Arm the startup grace window: fan/switch integrations report their own
+        # state when they boot, and that boot report was not requested by the
+        # thermostat. While the window is pending, external-change events are
+        # ignored so a boot report cannot flip the manual override switch on.
+        self._startup_ignore_timer = async_call_later(
+            self.hass, STARTUP_GRACE_SECONDS, self._clear_startup_ignore_timer
+        )
 
         # Control fans on startup. The desired speed is recalculated from the
         # current state of the sensors - the fan's speed is never recovered
@@ -574,6 +585,15 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
         Changes initiated by the thermostat itself are ignored: the state-change
         event for those calls carries the same control-pass context object we
         issued, so the event is matched by context type.
+
+        Two further kinds of events are never manual override either:
+        - boot reports: fan/switch integrations report their own state when they
+          start, which is not a user intent. The startup grace window (armed in
+          async_added_to_hass) ignores any such event for a short time after
+          setup.
+        - consistent reports: a reported state that matches what the thermostat
+          would have commanded is not a divergence from the user's intent -
+          the thermostat would have set it to the same value anyway.
         """
         if entity_id not in self._fan_controller_ids and entity_id not in self._switch_ids:
             return
@@ -585,6 +605,19 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
         if isinstance(context, _ControlPassContext):
             # Our own call completed: the marker context is definitive proof of
             # causality - never a manual override.
+            return
+
+        if self._startup_ignore_timer is not None:
+            # Boot report from the fan/switch integration's own startup: it
+            # was not requested by the thermostat, so it cannot be a user's
+            # intent. Ignore it rather than entering manual override.
+            _LOGGER.debug("Ignoring %s state event during startup grace window", entity_id)
+            return
+
+        if self._matches_desired_state(entity_id, event):
+            # The reported state is consistent with what the thermostat would
+            # have commanded: not an external change, just a report of the
+            # state the user (or the thermostat) already asked for.
             return
 
         if self._manual_override_time <= 0:
@@ -599,6 +632,56 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
         controller = self._get_controller()
         if controller is not None and controller.switch is not None:
             controller.switch.enter(Context(parent_id=context.id) if context is not None else None)
+
+    def _reported_fan_percentage(self, new_state: State | None) -> int | None:
+        """Return the reported fan percentage from a state, or None if indeterminate.
+
+        An off fan reports 0%; anything else is only comparable when the
+        reported state carries a numeric percentage.
+        """
+        if new_state is None:
+            return None
+        if new_state.state == STATE_OFF:
+            return 0
+        percentage = new_state.attributes.get("percentage")
+        if percentage is None:
+            return None
+        try:
+            return int(percentage)
+        except TypeError, ValueError:
+            return None
+
+    def _matches_desired_state(self, entity_id: str, event: Event) -> bool:
+        """Return True if the reported state is consistent with the desired state.
+
+        Fans are compared by exact percentage: the reported value must equal
+        what the thermostat would command. Switches carry no speed, so a
+        consistent report is simply one that agrees with the desired on/off.
+        """
+        new_state = event.data.get("new_state")
+        if entity_id in self._fan_controller_ids:
+            reported = self._reported_fan_percentage(new_state)
+            if reported is None:
+                return False
+            return reported == self._desired_percentage()
+        if entity_id in self._switch_ids:
+            if new_state is None:
+                return False
+            desired_on = self._desired_percentage() > 0
+            reported_on = new_state.state == STATE_ON
+            return reported_on == desired_on
+        return False
+
+    @callback
+    def _clear_startup_ignore_timer(self, _time: datetime) -> None:
+        """Startup grace window elapsed: manual override detection is back on."""
+        self._startup_ignore_timer = None
+
+    def _cancel_startup_ignore_timer(self) -> None:
+        """Cancel the startup grace window timer."""
+        if self._startup_ignore_timer is not None:
+            self._startup_ignore_timer()
+            self._startup_ignore_timer = None
 
     @callback
     def _on_switch_override_changed(self, active: bool) -> None:
@@ -682,6 +765,7 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
         """When entity will be removed from hass, cancel all timers."""
         self._cancel_motion_timer()
         self._cancel_retrigger_timer()
+        self._cancel_startup_ignore_timer()
         controller = self._get_controller()
         if controller is not None and controller.climate is self:
             controller.climate = None
