@@ -1,15 +1,16 @@
 """Tests for the Fan Thermostat switch platform."""
 
-from pytest_homeassistant.common import MockConfigEntry
-
 from homeassistant.components.switch import (
     DOMAIN as SWITCH_DOMAIN,
+)
+from homeassistant.components.switch import (
     SERVICE_TURN_OFF,
     SERVICE_TURN_ON,
 )
 from homeassistant.const import ATTR_ENTITY_ID, STATE_OFF, STATE_ON
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
+from pytest_homeassistant.common import MockConfigEntry
 
 from . import setup_integration
 
@@ -27,9 +28,7 @@ async def test_switch_entity_exists(
     assert switch_state.state == STATE_OFF
 
     # Check entity registry
-    entity_entry = entity_registry.async_get(
-        "switch.bedroom_fan_thermostat_manual_override"
-    )
+    entity_entry = entity_registry.async_get("switch.bedroom_fan_thermostat_manual_override")
     assert entity_entry is not None
     assert entity_entry.unique_id == "bedroom_fan_thermostat_override"
 
@@ -42,6 +41,7 @@ async def test_switch_turn_on(
     await setup_integration(hass, mock_config_entry)
 
     switch_state = hass.states.get("switch.bedroom_fan_thermostat_manual_override")
+    assert switch_state is not None
     assert switch_state.state == STATE_OFF
 
     await hass.services.async_call(
@@ -52,6 +52,7 @@ async def test_switch_turn_on(
     )
 
     switch_state = hass.states.get("switch.bedroom_fan_thermostat_manual_override")
+    assert switch_state is not None
     assert switch_state.state == STATE_ON
 
 
@@ -71,6 +72,7 @@ async def test_switch_turn_off(
     )
 
     switch_state = hass.states.get("switch.bedroom_fan_thermostat_manual_override")
+    assert switch_state is not None
     assert switch_state.state == STATE_ON
 
     # Turn off
@@ -82,6 +84,7 @@ async def test_switch_turn_off(
     )
 
     switch_state = hass.states.get("switch.bedroom_fan_thermostat_manual_override")
+    assert switch_state is not None
     assert switch_state.state == STATE_OFF
 
 
@@ -93,4 +96,5 @@ async def test_switch_available(
     await setup_integration(hass, mock_config_entry)
 
     switch_state = hass.states.get("switch.bedroom_fan_thermostat_manual_override")
+    assert switch_state is not None
     assert switch_state.attributes.get("available", True) is True

@@ -1,0 +1,21 @@
+# Configuration for pre-commit hooks.
+# See https://pre-commit.com for usage and https://pre-commit.com/#configuration
+# for reference. Run `pre-commit install` once to enable the hooks.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.6
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/astral-sh/ty-pre-commit
+    rev: v0.0.112
+    hooks:
+      - id: ty
+        # --isolated: run in a temporary environment instead of mutating the
+        # project (no uv.lock, no .venv changes). Declared dependencies are
+        # resolved into that temporary environment, so no local venv is
+        # required. --no-install-project: never build/install the project
+        # itself into that environment; ty checks the source tree directly.
+        args: [--isolated, --no-install-project]

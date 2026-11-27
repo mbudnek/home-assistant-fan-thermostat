@@ -1,37 +1,36 @@
 """Tests for the Fan Thermostat config flow."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-import pytest
-from pytest_homeassistant.common import MockConfigEntry
-from homeassistant.data_entry_flow import FlowResultType
-
-from homeassistant import config_entries
 from fan_thermostat.const import DOMAIN
+from homeassistant import config_entries
+from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.core import HomeAssistant
-from homeassistant.data_entry_flow import FlowResult
-
-from . import setup_integration
+from homeassistant.data_entry_flow import FlowResultType
+from pytest_homeassistant.common import MockConfigEntry
 
 
 async def test_full_flow(
     hass: HomeAssistant,
 ) -> None:
     """Test the full config flow."""
-    result: FlowResult = await hass.config_entries.flow.async_init(
+    result: ConfigFlowResult = await hass.config_entries.flow.async_init(
         DOMAIN,
         context={"source": config_entries.SOURCE_USER},
     )
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "user"
 
-    with patch(
-        "fan_thermostat.config_flow.FanThermostatConfigFlow.async_set_unique_id",
-        return_value=None,
-    ), patch(
-        "custom_components.fan_thermostat.climate.async_setup_entry",
-        return_value=True,
-    ) as mock_setup:
+    with (
+        patch(
+            "fan_thermostat.config_flow.FanThermostatConfigFlow.async_set_unique_id",
+            return_value=None,
+        ),
+        patch(
+            "custom_components.fan_thermostat.climate.async_setup_entry",
+            return_value=True,
+        ) as mock_setup,
+    ):
         result2 = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             {
@@ -59,18 +58,21 @@ async def test_full_flow_with_switches(
     hass: HomeAssistant,
 ) -> None:
     """Test the full config flow with switches but no fan controllers."""
-    result: FlowResult = await hass.config_entries.flow.async_init(
+    result: ConfigFlowResult = await hass.config_entries.flow.async_init(
         DOMAIN,
         context={"source": config_entries.SOURCE_USER},
     )
     assert result["type"] is FlowResultType.FORM
 
-    with patch(
-        "fan_thermostat.config_flow.FanThermostatConfigFlow.async_set_unique_id",
-        return_value=None,
-    ), patch(
-        "custom_components.fan_thermostat.climate.async_setup_entry",
-        return_value=True,
+    with (
+        patch(
+            "fan_thermostat.config_flow.FanThermostatConfigFlow.async_set_unique_id",
+            return_value=None,
+        ),
+        patch(
+            "custom_components.fan_thermostat.climate.async_setup_entry",
+            return_value=True,
+        ),
     ):
         result2 = await hass.config_entries.flow.async_configure(
             result["flow_id"],
@@ -92,23 +94,26 @@ async def test_full_flow_default_values(
     hass: HomeAssistant,
 ) -> None:
     """Test that default values are applied correctly.
-    
-    Timer defaults (retrigger_time, motion_timeout, manual_override_time) 
+
+    Timer defaults (retrigger_time, motion_timeout, manual_override_time)
     are no longer stored in config entry data since they moved to number entities.
     The climate entity reads them with .get() and falls back to const defaults.
     """
-    result: FlowResult = await hass.config_entries.flow.async_init(
+    result: ConfigFlowResult = await hass.config_entries.flow.async_init(
         DOMAIN,
         context={"source": config_entries.SOURCE_USER},
     )
     assert result["type"] is FlowResultType.FORM
 
-    with patch(
-        "fan_thermostat.config_flow.FanThermostatConfigFlow.async_set_unique_id",
-        return_value=None,
-    ), patch(
-        "custom_components.fan_thermostat.climate.async_setup_entry",
-        return_value=True,
+    with (
+        patch(
+            "fan_thermostat.config_flow.FanThermostatConfigFlow.async_set_unique_id",
+            return_value=None,
+        ),
+        patch(
+            "custom_components.fan_thermostat.climate.async_setup_entry",
+            return_value=True,
+        ),
     ):
         result2 = await hass.config_entries.flow.async_configure(
             result["flow_id"],
@@ -133,7 +138,7 @@ async def test_duplicate_name_abort(
     # First, set up an existing entry
     mock_config_entry.add_to_hass(hass)
 
-    result: FlowResult = await hass.config_entries.flow.async_init(
+    result: ConfigFlowResult = await hass.config_entries.flow.async_init(
         DOMAIN,
         context={"source": config_entries.SOURCE_USER},
     )
@@ -162,7 +167,7 @@ async def test_no_temp_sensors_error(
     hass: HomeAssistant,
 ) -> None:
     """Test that missing temperature sensors produces an error."""
-    result: FlowResult = await hass.config_entries.flow.async_init(
+    result: ConfigFlowResult = await hass.config_entries.flow.async_init(
         DOMAIN,
         context={"source": config_entries.SOURCE_USER},
     )
@@ -183,6 +188,7 @@ async def test_no_temp_sensors_error(
         )
 
     assert result2["type"] is FlowResultType.FORM
+    assert result2["errors"] is not None
     assert result2["errors"]["base"] == "no_temp_sensors"
 
 
@@ -190,7 +196,7 @@ async def test_no_fan_or_switch_error(
     hass: HomeAssistant,
 ) -> None:
     """Test that missing fan controllers and switches produces an error."""
-    result: FlowResult = await hass.config_entries.flow.async_init(
+    result: ConfigFlowResult = await hass.config_entries.flow.async_init(
         DOMAIN,
         context={"source": config_entries.SOURCE_USER},
     )
@@ -211,4 +217,5 @@ async def test_no_fan_or_switch_error(
         )
 
     assert result2["type"] is FlowResultType.FORM
+    assert result2["errors"] is not None
     assert result2["errors"]["base"] == "no_fan_or_switch"

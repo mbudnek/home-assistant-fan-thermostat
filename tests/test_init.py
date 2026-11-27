@@ -1,8 +1,7 @@
 """Tests for the Fan Thermostat integration setup."""
 
-from pytest_homeassistant.common import MockConfigEntry
-
 from homeassistant.core import HomeAssistant
+from pytest_homeassistant.common import MockConfigEntry
 
 from . import setup_integration
 
@@ -36,9 +35,7 @@ async def test_unload_entry(
     assert climate_state is not None
 
     # Unload the entry
-    assert await hass.config_entries.async_unload(
-        mock_config_entry.entry_id
-    )
+    assert await hass.config_entries.async_unload(mock_config_entry.entry_id)
     await hass.async_block_till_done()
 
     # After unload, entities are restored to unavailable (restore_state behavior)

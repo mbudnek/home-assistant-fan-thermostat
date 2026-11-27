@@ -9,14 +9,15 @@ control when the override is cleared.
 """
 
 import logging
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import Context, HomeAssistant, callback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.restore_state import RestoreEntity
-from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import (
     DEFAULT_MANUAL_OVERRIDE_TIME,
@@ -150,7 +151,8 @@ class FanThermostatManualOverride(SwitchEntity, RestoreEntity):
             return
         self._cancel_auto_clear()
         self._auto_clear_cancel = async_call_later(
-            self.hass, self._manual_override_time,
+            self.hass,
+            self._manual_override_time,
             self._auto_clear_callback,
         )
 

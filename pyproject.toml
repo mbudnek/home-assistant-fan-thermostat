@@ -10,6 +10,20 @@ readme = "README.md"
 license = {text = "GPL-3.0-only"}
 requires-python = ">=3.14.2"
 
+[dependency-groups]
+# Development/test dependencies. The pre-commit hook for ty resolves these
+# into its temporary environment, so nothing here needs to live in an
+# existing virtual environment to work.
+dev = [
+    "pytest>=7.0.0",
+    "pytest-homeassistant>=2026.11.0",
+    "syrupy>=6.0.0",
+    "pytest-timeout>=2.4.0",
+    "ruff==0.17.6",
+    "ty==0.0.112",
+    "pre-commit==4.7.0",
+]
+
 [project.urls]
 "Homepage" = "https://github.com/mbudnek/fan-thermostat"
 "Bug Tracker" = "https://github.com/mbudnek/fan-thermostat/issues"
@@ -24,3 +38,42 @@ pythonpath = ["."]
 ha_test_config_dir = "testing_config"
 addopts = "-p no:respx"
 timeout = 5
+
+[tool.ruff]
+target-version = "py314"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests need to put `custom_components/` on sys.path before importing the
+# integration, which is only possible after the path manipulation code.
+"tests/conftest.py" = ["E402"]
+
+[tool.ty.environment]
+# No `python` pin here: ty resolves imports through whatever environment it
+# discovers (an activated environment, a `.venv` in the project root, or a
+# `python3` on PATH). For the pre-commit hook, ty runs inside a temporary
+# environment that uv-creates from the dependencies above, so this file does
+# not depend on a specific local virtual environment.
+# The integration lives in custom_components/fan_thermostat, so that
+# directory must be on the first-party search path for `fan_thermostat`
+# imports to resolve. The repository root is also a root so that the
+# `tests` package (imported via `from . import setup_integration` and
+# `from custom_components.fan_thermostat...`) resolves as well.
+root = ["custom_components", "."]
+
+[[tool.ty.overrides]]
+include = ["custom_components/**"]
+
+# Home Assistant base classes (e.g. ClimateEntity) declare properties like
+# `hvac_mode`, `available`, `native_current_temperature` and
+# `extra_state_attributes` as plain `cached_property` descriptors. ty treats
+# those base attributes as writable, so the standard HA pattern of
+# overriding them with read-only `@property` is reported as
+# `incompatible-property-override`. The pattern is correct for Home Assistant
+# and is the one HA's own integrations use, so the rule is disabled for the
+# integration rather than the entities being rewritten.
+[tool.ty.overrides.rules]
+incompatible-property-override = "ignore"

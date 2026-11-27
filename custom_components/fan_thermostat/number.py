@@ -7,13 +7,13 @@ from homeassistant.components.number import NumberEntity, NumberMode
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfTime
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import (
-    DEFAULT_RETRIGGER_TIME,
-    DEFAULT_MOTION_TIMEOUT,
     DEFAULT_MANUAL_OVERRIDE_TIME,
+    DEFAULT_MOTION_TIMEOUT,
+    DEFAULT_RETRIGGER_TIME,
     DOMAIN,
 )
 from .controller import FanThermostatController
@@ -27,7 +27,7 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the Fan Thermostat number entities."""
-    
+
     retrigger_entity = FanThermostatNumberEntity(
         config_entry=config_entry,
         key="retrigger_time",
@@ -82,7 +82,7 @@ class FanThermostatNumberEntity(NumberEntity):
         self._min_value = min_value
         self._max_value = max_value
         self._step = step
-        
+
         # Use entry_id if unique_id is not set to ensure uniqueness
         base_uid = config_entry.unique_id or config_entry.entry_id
         self._attr_unique_id = f"{base_uid}_{self._key}"
@@ -124,8 +124,7 @@ class FanThermostatNumberEntity(NumberEntity):
         # Validate against min/max values
         if value < self._min_value or value > self._max_value:
             _LOGGER.warning(
-                "Value %s for %s out of range [%d, %d]",
-                value, self._key, int(self._min_value), int(self._max_value)
+                "Value %s for %s out of range [%d, %d]", value, self._key, int(self._min_value), int(self._max_value)
             )
             return
 
@@ -133,10 +132,7 @@ class FanThermostatNumberEntity(NumberEntity):
         new_data[self._key] = int(value)
 
         # Update config entry in storage and memory
-        self.hass.config_entries.async_update_entry(
-            self._config_entry,
-            data=new_data
-        )
+        self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
 
         # Update internal state immediately so UI reflects change without reload
         self._attr_native_value = int(value)

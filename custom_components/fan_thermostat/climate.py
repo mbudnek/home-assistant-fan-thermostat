@@ -1,7 +1,8 @@
 """Climate platform for the Fan Thermostat integration."""
 
 import logging
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from homeassistant.components.climate import (
     ClimateEntity,
@@ -12,20 +13,19 @@ from homeassistant.components.climate import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import PRECISION_TENTHS, UnitOfTemperature
 from homeassistant.core import Context, Event, HomeAssistant, callback
-from homeassistant.helpers.event import async_call_later, async_track_state_change_event
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.helpers.event import async_call_later, async_track_state_change_event
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import (
     DEFAULT_MANUAL_OVERRIDE_TIME,
     DEFAULT_MOTION_TIMEOUT,
     DEFAULT_RETRIGGER_TIME,
-    DEFAULT_TARGET_TEMP_LOW,
     DEFAULT_TARGET_TEMP_HIGH,
+    DEFAULT_TARGET_TEMP_LOW,
     DOMAIN,
     get_device_info,
 )
-
 from .controller import FanThermostatController
 
 _LOGGER = logging.getLogger(__name__)
@@ -92,9 +92,7 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
     _attr_max_temp = 95
     _attr_precision = PRECISION_TENTHS
     _attr_supported_features = (
-        ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
-        | ClimateEntityFeature.TURN_ON
-        | ClimateEntityFeature.TURN_OFF
+        ClimateEntityFeature.TARGET_TEMPERATURE_RANGE | ClimateEntityFeature.TURN_ON | ClimateEntityFeature.TURN_OFF
     )
 
     @property
@@ -129,7 +127,10 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
         """Initialize the Fan Thermostat climate entity."""
         super().__init__()
         self._config_entry = config_entry
-        self._attr_unique_id = f"{config_entry.unique_id}_climate" if config_entry.unique_id else f"{config_entry.entry_id}_climate"
+        if config_entry.unique_id:
+            self._attr_unique_id = f"{config_entry.unique_id}_climate"
+        else:
+            self._attr_unique_id = f"{config_entry.entry_id}_climate"
         self._attr_device_info = get_device_info(config_entry, name)
 
         self._temperature_sensor_ids = temperature_sensor_ids
@@ -145,12 +146,8 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
         self._fans_commanded_on: bool = False
         self._retrigger_cancel: Callable[[], None] | None = None
         self._motion_cancel: Callable[[], None] | None = None
-        self._target_temp_low: float = config_entry.data.get(
-            "target_temp_low", DEFAULT_TARGET_TEMP_LOW
-        )
-        self._target_temp_high: float = config_entry.data.get(
-            "target_temp_high", DEFAULT_TARGET_TEMP_HIGH
-        )
+        self._target_temp_low: float = config_entry.data.get("target_temp_low", DEFAULT_TARGET_TEMP_LOW)
+        self._target_temp_high: float = config_entry.data.get("target_temp_high", DEFAULT_TARGET_TEMP_HIGH)
 
     @property
     def hvac_mode(self) -> HVACMode:
@@ -262,40 +259,24 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
                 saved_high = last_state.attributes.get("target_temp_high")
                 if saved_high is not None:
                     self._target_temp_high = float(saved_high)
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 pass
 
         # Subscribe to temperature sensors
         for sensor_id in self._temperature_sensor_ids:
-            self.async_on_remove(
-                async_track_state_change_event(
-                    self.hass, {sensor_id}, self._on_state_changed
-                )
-            )
+            self.async_on_remove(async_track_state_change_event(self.hass, {sensor_id}, self._on_state_changed))
 
         # Subscribe to fan controllers
         for fan_id in self._fan_controller_ids:
-            self.async_on_remove(
-                async_track_state_change_event(
-                    self.hass, {fan_id}, self._on_state_changed
-                )
-            )
+            self.async_on_remove(async_track_state_change_event(self.hass, {fan_id}, self._on_state_changed))
 
         # Subscribe to motion sensors
         for sensor_id in self._motion_sensor_ids:
-            self.async_on_remove(
-                async_track_state_change_event(
-                    self.hass, {sensor_id}, self._on_state_changed
-                )
-            )
+            self.async_on_remove(async_track_state_change_event(self.hass, {sensor_id}, self._on_state_changed))
 
         # Subscribe to switches
         for sw_id in self._switch_ids:
-            self.async_on_remove(
-                async_track_state_change_event(
-                    self.hass, {sw_id}, self._on_state_changed
-                )
-            )
+            self.async_on_remove(async_track_state_change_event(self.hass, {sw_id}, self._on_state_changed))
 
         # Control fans on startup. The desired speed is recalculated from the
         # current state of the sensors - the fan's speed is never recovered
@@ -364,7 +345,7 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
                 if temp is None:
                     try:
                         temp = float(state.state)
-                    except (ValueError, TypeError):
+                    except ValueError, TypeError:
                         pass
                 if temp is not None:
                     temperatures.append(float(temp))
@@ -501,15 +482,15 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
         # If we don't have a temperature reading yet, return 0
         if current is None:
             return 0
-        
+
         # Below or at target_temp_low, fan is off
         if current <= self._target_temp_low:
             return 0
-        
+
         # At or above target_temp_high, fan is at full speed
         if current >= self._target_temp_high:
             return 100
-        
+
         # Linear interpolation between low and high
         range_size = self._target_temp_high - self._target_temp_low
         if range_size == 0:
@@ -537,9 +518,7 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
         self.async_set_context(context)
         return context
 
-    def _call_service(
-        self, domain: str, service: str, data: dict[str, Any], context: Context
-    ) -> None:
+    def _call_service(self, domain: str, service: str, data: dict[str, Any], context: Context) -> None:
         """Fire-and-forget a service call under a control-pass trigger context.
 
         The state-change event fired by the called entity carries the same
@@ -550,15 +529,17 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
         Failures are logged, never silently swallowed, and never propagated
         into the caller (fan control must not take down the thermostat).
         """
+
         async def _call() -> None:
             try:
-                await self.hass.services.async_call(
-                    domain, service, data, context=context
-                )
+                await self.hass.services.async_call(domain, service, data, context=context)
             except Exception as err:  # noqa: BLE001 - log and continue
                 _LOGGER.warning(
                     "Failed to call %s.%s for %s: %s",
-                    domain, service, data.get("entity_id"), err,
+                    domain,
+                    service,
+                    data.get("entity_id"),
+                    err,
                 )
 
         self._config_entry.async_create_task(
@@ -569,7 +550,8 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
         """Set all fan controllers to the given percentage and turn on all switches."""
         for fan_id in self._fan_controller_ids:
             self._call_service(
-                "fan", "set_percentage",
+                "fan",
+                "set_percentage",
                 {"entity_id": fan_id, "percentage": percentage},
                 context,
             )
@@ -609,19 +591,14 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
             # Automatic manual override is disabled (0s time): the change is
             # left to the user's control instead of stopping the thermostat.
             return
-        _LOGGER.info(
-            "External change detected on %s - entering manual override mode",
-            entity_id
-        )
+        _LOGGER.info("External change detected on %s - entering manual override mode", entity_id)
         # Link the switch's state write (the visible override transition) to
         # the external event, the same convention automations use for their
         # own state row. This is a fresh plain child context - the event is
         # not self-initiated, so it must not carry the marker subclass.
         controller = self._get_controller()
         if controller is not None and controller.switch is not None:
-            controller.switch.enter(
-                Context(parent_id=context.id) if context is not None else None
-            )
+            controller.switch.enter(Context(parent_id=context.id) if context is not None else None)
 
     @callback
     def _on_switch_override_changed(self, active: bool) -> None:
@@ -657,9 +634,7 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
             return
         if self._retrigger_cancel is not None:
             return
-        self._retrigger_cancel = async_call_later(
-            self.hass, self._retrigger_time, self._handle_retrigger_elapsed
-        )
+        self._retrigger_cancel = async_call_later(self.hass, self._retrigger_time, self._handle_retrigger_elapsed)
 
     def handle_settings_changed(self, key: str) -> None:
         """Reschedule timers after a timer setting changed at runtime.
@@ -743,4 +718,3 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
         context = self._new_trigger_context(parent_id=parent_id)
         self._control_fans(context)
         self.async_write_ha_state()
-

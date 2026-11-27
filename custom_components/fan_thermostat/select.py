@@ -64,9 +64,7 @@ class FanThermostatTemperatureOperation(SelectEntity):
 
         new_data = {**self._config_entry.data}
         new_data["temperature_operation"] = option
-        self.hass.config_entries.async_update_entry(
-            self._config_entry, data=new_data
-        )
+        self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
 
         controller = self._get_controller()
         if controller is not None and controller.climate is not None:

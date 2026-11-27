@@ -1,13 +1,10 @@
 """Tests for the Fan Thermostat integration."""
 
+from homeassistant.core import HomeAssistant
 from pytest_homeassistant.common import MockConfigEntry
 
-from homeassistant.core import HomeAssistant
 
-
-async def setup_integration(
-    hass: HomeAssistant, config_entry: MockConfigEntry
-) -> None:
+async def setup_integration(hass: HomeAssistant, config_entry: MockConfigEntry) -> None:
     """Set up the Fan Thermostat integration in the test Home Assistant instance."""
     config_entry.add_to_hass(hass)
 

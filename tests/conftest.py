@@ -1,7 +1,8 @@
 """Standalone test fixtures for Fan Thermostat integration."""
 
-import sys
 import os
+import sys
+
 
 # Fail fast instead of hanging when asyncio's wakeup self-pipe is blocked.
 # Sandboxed environments (e.g. the Codex sandbox) block AF_UNIX socketpair
@@ -32,7 +33,11 @@ if _self_pipe_send_blocked():
     import asyncio.base_events
     import asyncio.constants
 
-    asyncio.constants.THREAD_JOIN_TIMEOUT = 1.0
+    # Intentionally overridden for the sandbox workaround. THREAD_JOIN_TIMEOUT
+    # is unannotated in the stdlib (`THREAD_JOIN_TIMEOUT = 300`), so ty infers
+    # its type as the literal `Literal[300]` and flags the assignment. Suppress
+    # that diagnostic.
+    asyncio.constants.THREAD_JOIN_TIMEOUT = 1.0  # ty: ignore[invalid-assignment]
 
     _DEFAULT_EXECUTOR_SHUTDOWN_TIMEOUT = 1.0
     _orig_shutdown_default_executor = asyncio.base_events.BaseEventLoop.shutdown_default_executor
@@ -53,23 +58,23 @@ if _self_pipe_send_blocked():
 
 
 # Add the custom component to the path so tests can import it
-custom_components_path = os.path.join(os.path.dirname(__file__), '..', 'custom_components')
+custom_components_path = os.path.join(os.path.dirname(__file__), "..", "custom_components")
 if custom_components_path not in sys.path:
     sys.path.insert(0, custom_components_path)
 
-from collections.abc import AsyncGenerator
+from collections.abc import Iterator
 
 import pytest
-from pytest_homeassistant.common import MockConfigEntry
-from homeassistant.core import HomeAssistant
-from homeassistant.util.unit_system import IMPERIAL_SYSTEM
 
 # Import from the custom component directly
 from fan_thermostat.const import DOMAIN
+from homeassistant.core import HomeAssistant
+from homeassistant.util.unit_system import IMPERIAL_SYSTEM
+from pytest_homeassistant.common import MockConfigEntry
 
 
 @pytest.fixture(autouse=True)
-def _setup_default_motion_sensors(hass: HomeAssistant):
+def _setup_default_motion_sensors(hass: HomeAssistant) -> Iterator[None]:
     """Auto-set motion sensors to active state before each test."""
     # Set common motion sensor states to active by default
     hass.states.async_set("binary_sensor.bedroom_motion", "active")
@@ -190,13 +195,13 @@ def mock_config_entry_single_speed() -> MockConfigEntry:
 
 
 @pytest.fixture
-def caplog(caplog: pytest.LogCaptureFixture) -> AsyncGenerator[pytest.LogCaptureFixture, None]:
+def caplog(caplog: pytest.LogCaptureFixture) -> Iterator[pytest.LogCaptureFixture]:
     """Fixture to capture logs."""
     yield caplog
 
 
 @pytest.fixture
-def hass(hass: HomeAssistant) -> AsyncGenerator[HomeAssistant, None]:
+def hass(hass: HomeAssistant) -> Iterator[HomeAssistant]:
     """Override the hass fixture to use IMPERIAL_SYSTEM (Fahrenheit)."""
     # Set the temperature unit to Fahrenheit
     hass.config.units = IMPERIAL_SYSTEM

@@ -1,25 +1,16 @@
 """Tests for the Fan Thermostat climate platform."""
 
 from datetime import timedelta
-from unittest.mock import patch
-
-import pytest
-from pytest_homeassistant.common import (
-    MockConfigEntry,
-    async_fire_time_changed,
-    mock_restore_cache,
-)
 
 from homeassistant.components.climate import (
     ATTR_HVAC_MODE,
-    ATTR_TARGET_TEMP_HIGH,
-    ATTR_TARGET_TEMP_LOW,
-    DOMAIN as CLIMATE_DOMAIN,
-    SERVICE_SET_FAN_MODE,
     SERVICE_SET_HVAC_MODE,
     SERVICE_SET_TEMPERATURE,
     HVACAction,
     HVACMode,
+)
+from homeassistant.components.climate import (
+    DOMAIN as CLIMATE_DOMAIN,
 )
 from homeassistant.const import (
     ATTR_ENTITY_ID,
@@ -30,8 +21,12 @@ from homeassistant.const import (
 )
 from homeassistant.core import EVENT_STATE_CHANGED, HomeAssistant, State
 from homeassistant.helpers import entity_registry as er
-from homeassistant.setup import async_setup_component
 from homeassistant.util import dt as dt_util
+from pytest_homeassistant.common import (
+    MockConfigEntry,
+    async_fire_time_changed,
+    mock_restore_cache,
+)
 
 from . import setup_integration
 
@@ -62,10 +57,9 @@ async def test_climate_hvac_modes(
     await setup_integration(hass, mock_config_entry)
 
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
     assert HVACMode.OFF in climate_state.attributes["hvac_modes"]
     assert HVACMode.FAN_ONLY in climate_state.attributes["hvac_modes"]
-
-
 
 
 async def test_climate_initial_state(
@@ -76,6 +70,7 @@ async def test_climate_initial_state(
     await setup_integration(hass, mock_config_entry)
 
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
     assert climate_state.state == HVACMode.FAN_ONLY
     # hvac_action is IDLE because temp sensor not set yet, so percentage=0 and mode=FAN_ONLY
     assert climate_state.attributes["hvac_action"] == HVACAction.IDLE
@@ -101,6 +96,7 @@ async def test_set_hvac_mode_fan_only(
     )
 
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
     assert climate_state.state == HVACMode.FAN_ONLY
 
 
@@ -116,9 +112,7 @@ async def test_set_hvac_mode_off(
     await setup_integration(hass, mock_config_entry)
 
     # Set a temperature that would normally turn the fan on (above target_high=78)
-    hass.states.async_set(
-        "sensor.bedroom_temp", 85.0, {"device_class": "temperature"}
-    )
+    hass.states.async_set("sensor.bedroom_temp", "85.0", {"device_class": "temperature"})
 
     await hass.services.async_call(
         CLIMATE_DOMAIN,
@@ -144,6 +138,7 @@ async def test_set_hvac_mode_off(
     )
 
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
     assert climate_state.state == HVACMode.OFF
     assert climate_state.attributes["hvac_action"] == HVACAction.OFF
 
@@ -168,6 +163,7 @@ async def test_set_temperature(
     )
 
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
     assert climate_state.attributes["target_temp_low"] == 70.0
     assert climate_state.attributes["target_temp_high"] == 80.0
 
@@ -180,11 +176,10 @@ async def test_temperature_above_target_turns_on_fan(
     await setup_integration(hass, mock_config_entry)
 
     # Set a temperature between target_low and target_high (72-78 range)
-    hass.states.async_set(
-        "sensor.bedroom_temp", 75.0, {"device_class": "temperature"}
-    )
+    hass.states.async_set("sensor.bedroom_temp", "75.0", {"device_class": "temperature"})
 
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
     # Temp 75, target_low 72, target_high 78 (range=6) -> ((75-72)/6)*100 = 50%
     assert climate_state.attributes.get("percentage") == 50
 
@@ -197,11 +192,10 @@ async def test_temperature_at_target_low_turns_off_fan(
     await setup_integration(hass, mock_config_entry)
 
     # Set temperature to exactly target_temp_low
-    hass.states.async_set(
-        "sensor.bedroom_temp", 72.0, {"device_class": "temperature"}
-    )
+    hass.states.async_set("sensor.bedroom_temp", "72.0", {"device_class": "temperature"})
 
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
     assert climate_state.attributes.get("percentage") is None
 
 
@@ -213,11 +207,10 @@ async def test_temperature_below_target_turns_off_fan(
     await setup_integration(hass, mock_config_entry)
 
     # Set temperature below target_temp_low
-    hass.states.async_set(
-        "sensor.bedroom_temp", 70.0, {"device_class": "temperature"}
-    )
+    hass.states.async_set("sensor.bedroom_temp", "70.0", {"device_class": "temperature"})
 
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
     assert climate_state.attributes.get("percentage") is None
 
 
@@ -230,19 +223,17 @@ async def test_temperature_step_calculates_speed(
 
     # target_low is 72, target_high is 78 (range=6)
     # Temperature 74 (2 above target_low) -> ((74-72)/6)*100 = 33%
-    hass.states.async_set(
-        "sensor.bedroom_temp", 74.0, {"device_class": "temperature"}
-    )
+    hass.states.async_set("sensor.bedroom_temp", "74.0", {"device_class": "temperature"})
 
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
     assert climate_state.attributes.get("percentage") == 33
 
     # Temperature 78 (at target_high) -> clamped to 100%
-    hass.states.async_set(
-        "sensor.bedroom_temp", 78.0, {"device_class": "temperature"}
-    )
+    hass.states.async_set("sensor.bedroom_temp", "78.0", {"device_class": "temperature"})
 
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
     assert climate_state.attributes.get("percentage") == 100
 
 
@@ -254,26 +245,20 @@ async def test_multiple_temperature_sensors_max_by_default(
     await setup_integration(hass, mock_config_entry_multiple_sensors)
 
     # Set two temperatures: 69 and 71 -> max 71 (above target_temp_low=70)
-    hass.states.async_set(
-        "sensor.living_room_temp_1", 69.0, {"device_class": "temperature"}
-    )
-    hass.states.async_set(
-        "sensor.living_room_temp_2", 71.0, {"device_class": "temperature"}
-    )
+    hass.states.async_set("sensor.living_room_temp_1", "69.0", {"device_class": "temperature"})
+    hass.states.async_set("sensor.living_room_temp_2", "71.0", {"device_class": "temperature"})
 
     climate_state = hass.states.get("climate.living_room_fan_thermostat")
+    assert climate_state is not None
     # Max is 71, target_low=70, target_high=78 (range=8) -> ((71-70)/8)*100 = 12.5 -> 12
     assert climate_state.attributes.get("percentage") == 12
 
     # Now set to 74 and 78 -> max 78 (at target_high) -> 100%
-    hass.states.async_set(
-        "sensor.living_room_temp_1", 74.0, {"device_class": "temperature"}
-    )
-    hass.states.async_set(
-        "sensor.living_room_temp_2", 78.0, {"device_class": "temperature"}
-    )
+    hass.states.async_set("sensor.living_room_temp_1", "74.0", {"device_class": "temperature"})
+    hass.states.async_set("sensor.living_room_temp_2", "78.0", {"device_class": "temperature"})
 
     climate_state = hass.states.get("climate.living_room_fan_thermostat")
+    assert climate_state is not None
     assert climate_state.attributes.get("percentage") == 100
 
 
@@ -292,25 +277,19 @@ async def test_multiple_temperature_sensors_avg(
     )
     await hass.async_block_till_done()
 
-    hass.states.async_set(
-        "sensor.living_room_temp_1", 69.0, {"device_class": "temperature"}
-    )
-    hass.states.async_set(
-        "sensor.living_room_temp_2", 71.0, {"device_class": "temperature"}
-    )
+    hass.states.async_set("sensor.living_room_temp_1", "69.0", {"device_class": "temperature"})
+    hass.states.async_set("sensor.living_room_temp_2", "71.0", {"device_class": "temperature"})
 
     climate_state = hass.states.get("climate.living_room_fan_thermostat")
+    assert climate_state is not None
     # Average is 70, which equals target_low, so fan should be off
     assert climate_state.attributes.get("percentage") is None
 
-    hass.states.async_set(
-        "sensor.living_room_temp_1", 74.0, {"device_class": "temperature"}
-    )
-    hass.states.async_set(
-        "sensor.living_room_temp_2", 78.0, {"device_class": "temperature"}
-    )
+    hass.states.async_set("sensor.living_room_temp_1", "74.0", {"device_class": "temperature"})
+    hass.states.async_set("sensor.living_room_temp_2", "78.0", {"device_class": "temperature"})
 
     climate_state = hass.states.get("climate.living_room_fan_thermostat")
+    assert climate_state is not None
     # Average is 76, target_low is 70, target_high is 78 (range=8) -> ((76-70)/8)*100 = 75%
     assert climate_state.attributes.get("percentage") == 75
 
@@ -327,15 +306,12 @@ async def test_multiple_temperature_sensors_min_and_select_entity(
     assert select_state.state == "max"
     assert select_state.attributes.get("options") == ["min", "max", "avg"]
 
-    hass.states.async_set(
-        "sensor.living_room_temp_1", 74.0, {"device_class": "temperature"}
-    )
-    hass.states.async_set(
-        "sensor.living_room_temp_2", 78.0, {"device_class": "temperature"}
-    )
+    hass.states.async_set("sensor.living_room_temp_1", "74.0", {"device_class": "temperature"})
+    hass.states.async_set("sensor.living_room_temp_2", "78.0", {"device_class": "temperature"})
 
     # max (default) -> 78 -> 100%
     climate_state = hass.states.get("climate.living_room_fan_thermostat")
+    assert climate_state is not None
     assert climate_state.attributes.get("percentage") == 100
 
     # Switch to min via the select entity -> 74 -> ((74-70)/8)*100 = 50%
@@ -348,6 +324,7 @@ async def test_multiple_temperature_sensors_min_and_select_entity(
     await hass.async_block_till_done()
 
     climate_state = hass.states.get("climate.living_room_fan_thermostat")
+    assert climate_state is not None
     assert climate_state.attributes.get("percentage") == 50
 
 
@@ -359,20 +336,18 @@ async def test_motion_sensor_turns_fan_off(
     await setup_integration(hass, mock_config_entry)
 
     # Set temperature above setpoint
-    hass.states.async_set(
-        "sensor.bedroom_temp", 85.0, {"device_class": "temperature"}
-    )
+    hass.states.async_set("sensor.bedroom_temp", "85.0", {"device_class": "temperature"})
 
     # Fan should be on
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
     assert climate_state.attributes.get("percentage") == 100
 
     # Motion sensor becomes inactive: the fan stays on until the timeout elapses
-    hass.states.async_set(
-        "binary_sensor.bedroom_motion", "inactive", {"device_class": "motion"}
-    )
+    hass.states.async_set("binary_sensor.bedroom_motion", "inactive", {"device_class": "motion"})
 
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
     assert climate_state.attributes.get("percentage") == 100
 
     # After the motion timeout (300s) elapses, the fan turns off
@@ -380,6 +355,7 @@ async def test_motion_sensor_turns_fan_off(
     await hass.async_block_till_done()
 
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
     assert climate_state.attributes.get("percentage") is None
 
 
@@ -391,24 +367,20 @@ async def test_motion_sensor_turns_fan_on(
     await setup_integration(hass, mock_config_entry)
 
     # Set temperature above setpoint
-    hass.states.async_set(
-        "sensor.bedroom_temp", 85.0, {"device_class": "temperature"}
-    )
+    hass.states.async_set("sensor.bedroom_temp", "85.0", {"device_class": "temperature"})
 
     # Motion sensor becomes inactive: the fan stays on for the motion timeout
-    hass.states.async_set(
-        "binary_sensor.bedroom_motion", "inactive", {"device_class": "motion"}
-    )
+    hass.states.async_set("binary_sensor.bedroom_motion", "inactive", {"device_class": "motion"})
 
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
     assert climate_state.attributes.get("percentage") == 100
 
     # Motion sensor becomes active again
-    hass.states.async_set(
-        "binary_sensor.bedroom_motion", "active", {"device_class": "motion"}
-    )
+    hass.states.async_set("binary_sensor.bedroom_motion", "active", {"device_class": "motion"})
 
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
     assert climate_state.attributes.get("percentage") == 100
 
 
@@ -420,11 +392,10 @@ async def test_manual_override_switch(
     await setup_integration(hass, mock_config_entry)
 
     # Set temperature above setpoint
-    hass.states.async_set(
-        "sensor.bedroom_temp", 85.0, {"device_class": "temperature"}
-    )
+    hass.states.async_set("sensor.bedroom_temp", "85.0", {"device_class": "temperature"})
 
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
     assert climate_state.attributes.get("percentage") == 100
 
     # Turn on manual override
@@ -437,6 +408,7 @@ async def test_manual_override_switch(
 
     # Climate entity should now be in manual override mode
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
     assert climate_state.attributes.get("percentage") == 100  # Should not change
 
     # Turn off manual override
@@ -448,6 +420,7 @@ async def test_manual_override_switch(
     )
 
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
     assert climate_state.attributes.get("percentage") == 100
 
 
@@ -475,7 +448,7 @@ async def test_manual_override_exit_turns_off_fan_when_fan_is_on(
     await setup_integration(hass, mock_config_entry)
 
     # Low temperature: thermostat keeps the fan off
-    hass.states.async_set("sensor.bedroom_temp", 70.0, {"device_class": "temperature"})
+    hass.states.async_set("sensor.bedroom_temp", "70.0", {"device_class": "temperature"})
     await hass.async_block_till_done()
 
     # User turns the physical fan on (external change)
@@ -497,6 +470,7 @@ async def test_manual_override_exit_turns_off_fan_when_fan_is_on(
 
     assert ("turn_off", "fan.bedroom_fan") in recorded
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
     assert climate_state.attributes.get("percentage") is None
 
 
@@ -519,9 +493,10 @@ async def test_manual_override_exit_changes_fan_speed_when_fan_is_on(
     await setup_integration(hass, mock_config_entry)
 
     # Temp 75 -> thermostat wants 50%
-    hass.states.async_set("sensor.bedroom_temp", 75.0, {"device_class": "temperature"})
+    hass.states.async_set("sensor.bedroom_temp", "75.0", {"device_class": "temperature"})
     await hass.async_block_till_done()
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
     assert climate_state.attributes.get("percentage") == 50
 
     # User manually sets the fan to 100% (external change)
@@ -539,6 +514,7 @@ async def test_manual_override_exit_changes_fan_speed_when_fan_is_on(
     # Thermostat resumes control: the desired speed (50%) is applied
     assert recorded and recorded[-1] == 50
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
     assert climate_state.attributes.get("percentage") == 50
 
 
@@ -561,7 +537,7 @@ async def test_manual_override_exit_turns_fan_on_when_fan_is_off(
     await setup_integration(hass, mock_config_entry)
 
     # Temp 85 -> thermostat wants 100%
-    hass.states.async_set("sensor.bedroom_temp", 85.0, {"device_class": "temperature"})
+    hass.states.async_set("sensor.bedroom_temp", "85.0", {"device_class": "temperature"})
     await hass.async_block_till_done()
 
     # User manually turns the fan off (external change)
@@ -578,8 +554,8 @@ async def test_manual_override_exit_turns_fan_on_when_fan_is_off(
 
     assert 100 in recorded
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
     assert climate_state.attributes.get("percentage") == 100
-
 
 
 async def test_turn_on(
@@ -589,7 +565,7 @@ async def test_turn_on(
     """Test turning the climate entity on."""
     # Set a temperature so the desired speed is known
     hass.states.async_set("sensor.bedroom_temp", "83.0", {"device_class": "temperature"})
-    
+
     await setup_integration(hass, mock_config_entry)
 
     await hass.services.async_call(
@@ -600,6 +576,7 @@ async def test_turn_on(
     )
 
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
     assert climate_state.attributes.get("percentage") == 100
 
 
@@ -611,11 +588,10 @@ async def test_turn_off(
     await setup_integration(hass, mock_config_entry)
 
     # Set temperature above setpoint
-    hass.states.async_set(
-        "sensor.bedroom_temp", 85.0, {"device_class": "temperature"}
-    )
+    hass.states.async_set("sensor.bedroom_temp", "85.0", {"device_class": "temperature"})
 
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
     assert climate_state.attributes.get("percentage") == 100
 
     await hass.services.async_call(
@@ -626,6 +602,7 @@ async def test_turn_off(
     )
 
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
     assert climate_state.attributes.get("percentage") is None
     assert climate_state.state == HVACMode.OFF
 
@@ -643,11 +620,10 @@ async def test_switches_controlled(
     assert climate_state.state == HVACMode.FAN_ONLY
 
     # Set temperature above target_high (78.0) so the fan should turn on at 100%
-    hass.states.async_set(
-        "sensor.box_fan_temp", 85.0, {"device_class": "temperature"}
-    )
+    hass.states.async_set("sensor.box_fan_temp", "85.0", {"device_class": "temperature"})
 
     climate_state = hass.states.get("climate.box_fan_thermostat")
+    assert climate_state is not None
     assert climate_state.attributes.get("percentage") == 100
 
     # Now turn off via climate service
@@ -659,6 +635,7 @@ async def test_switches_controlled(
     )
 
     climate_state = hass.states.get("climate.box_fan_thermostat")
+    assert climate_state is not None
     assert climate_state.attributes.get("percentage") is None
 
 
@@ -670,11 +647,10 @@ async def test_single_speed_fan(
     await setup_integration(hass, mock_config_entry_single_speed)
 
     # Set temperature above setpoint
-    hass.states.async_set(
-        "sensor.single_speed_temp", 85.0, {"device_class": "temperature"}
-    )
+    hass.states.async_set("sensor.single_speed_temp", "85.0", {"device_class": "temperature"})
 
     climate_state = hass.states.get("climate.single_speed_fan_thermostat")
+    assert climate_state is not None
     assert climate_state.attributes.get("percentage") == 100
     assert climate_state.attributes["percentage"] == 100
 
@@ -687,7 +663,7 @@ async def test_climate_entity_available(
     # Set initial sensor states so they're "seen" by the entity
     hass.states.async_set("sensor.bedroom_temp", "78.0", {"device_class": "temperature"})
     hass.states.async_set("fan.bedroom_fan", "on", {"supported_features": 1})
-    
+
     await setup_integration(hass, mock_config_entry)
 
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
@@ -696,16 +672,13 @@ async def test_climate_entity_available(
     assert climate_state.attributes.get("availability") != "unavailable" or climate_state.state != "unavailable"
 
     # Make all sensors unavailable
-    hass.states.async_set(
-        "sensor.bedroom_temp", "unavailable", {"device_class": "temperature"}
-    )
-    hass.states.async_set(
-        "fan.bedroom_fan", "unavailable", {"supported_features": 1}
-    )
+    hass.states.async_set("sensor.bedroom_temp", "unavailable", {"device_class": "temperature"})
+    hass.states.async_set("fan.bedroom_fan", "unavailable", {"supported_features": 1})
 
     await hass.async_block_till_done()
-    
+
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
     # Entity should now be unavailable because all sensors are unavailable
     assert climate_state.state == "unavailable"
 
@@ -719,30 +692,28 @@ async def test_climate_hvac_action(
 
     # Initially, no temperature set yet, mode=FAN_ONLY so action is IDLE (not OFF since we're not in OFF mode)
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
     assert climate_state.attributes["hvac_action"] == HVACAction.IDLE
 
     # Set temperature above target_high (78.0) -> fan runs at 100%, action is FAN
-    hass.states.async_set(
-        "sensor.bedroom_temp", 85.0, {"device_class": "temperature"}
-    )
+    hass.states.async_set("sensor.bedroom_temp", "85.0", {"device_class": "temperature"})
 
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
     assert climate_state.attributes["hvac_action"] == HVACAction.FAN
 
     # Set temperature at target_high (78.0) -> fan still runs at 100%, action is FAN
-    hass.states.async_set(
-        "sensor.bedroom_temp", 78.0, {"device_class": "temperature"}
-    )
+    hass.states.async_set("sensor.bedroom_temp", "78.0", {"device_class": "temperature"})
 
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
     assert climate_state.attributes["hvac_action"] == HVACAction.FAN
-    
+
     # Set temperature below target_low (72.0) -> fan off, action is IDLE
-    hass.states.async_set(
-        "sensor.bedroom_temp", 70.0, {"device_class": "temperature"}
-    )
+    hass.states.async_set("sensor.bedroom_temp", "70.0", {"device_class": "temperature"})
 
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
     assert climate_state.attributes["hvac_action"] == HVACAction.IDLE
 
 
@@ -754,6 +725,7 @@ async def test_climate_native_temperature_unit(
     await setup_integration(hass, mock_config_entry)
 
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
     assert climate_state.attributes["temperature_unit"] == "°F"
 
 
@@ -765,6 +737,7 @@ async def test_climate_min_max_temp(
     await setup_integration(hass, mock_config_entry)
 
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
     assert climate_state.attributes["min_temp"] == 45
     assert climate_state.attributes["max_temp"] == 95
 
@@ -783,9 +756,7 @@ async def test_fan_service_calls_are_made(
 
     await setup_integration(hass, mock_config_entry)
 
-    hass.states.async_set(
-        "sensor.bedroom_temp", 85.0, {"device_class": "temperature"}
-    )
+    hass.states.async_set("sensor.bedroom_temp", "85.0", {"device_class": "temperature"})
     await hass.async_block_till_done()
 
     assert ("set_percentage", "fan.bedroom_fan", 100) in recorded
@@ -799,20 +770,18 @@ async def test_retrigger_time_blocks_fan_restart(
     await setup_integration(hass, mock_config_entry)
 
     # Set temperature above setpoint: fan at 100%
-    hass.states.async_set(
-        "sensor.bedroom_temp", 85.0, {"device_class": "temperature"}
-    )
+    hass.states.async_set("sensor.bedroom_temp", "85.0", {"device_class": "temperature"})
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
     assert climate_state.attributes.get("percentage") == 100
 
     # Motion stops
-    hass.states.async_set(
-        "binary_sensor.bedroom_motion", "inactive", {"device_class": "motion"}
-    )
+    hass.states.async_set("binary_sensor.bedroom_motion", "inactive", {"device_class": "motion"})
     await hass.async_block_till_done()
 
     # Stay-on window: fan still on
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
     assert climate_state.attributes.get("percentage") == 100
 
     # Motion timeout elapses: fans off, retrigger lockout starts
@@ -820,15 +789,15 @@ async def test_retrigger_time_blocks_fan_restart(
     await hass.async_block_till_done()
 
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
     assert climate_state.attributes.get("percentage") is None
 
     # Motion re-detected during the retrigger window: fan still off
-    hass.states.async_set(
-        "binary_sensor.bedroom_motion", "active", {"device_class": "motion"}
-    )
+    hass.states.async_set("binary_sensor.bedroom_motion", "active", {"device_class": "motion"})
     await hass.async_block_till_done()
 
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
     assert climate_state.attributes.get("percentage") is None
 
     # Retrigger window elapses: fan turns back on
@@ -836,6 +805,7 @@ async def test_retrigger_time_blocks_fan_restart(
     await hass.async_block_till_done()
 
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
     assert climate_state.attributes.get("percentage") == 100
 
 
@@ -847,26 +817,30 @@ async def test_retrigger_time_blocks_fan_restart_without_motion_sensors(
     await setup_integration(hass, mock_config_entry_no_motion)
 
     # Above the low setpoint: fan runs (75 -> (75-70)/(82-70) = ~42%)
-    hass.states.async_set("sensor.office_temp", 75.0, {"device_class": "temperature"})
+    hass.states.async_set("sensor.office_temp", "75.0", {"device_class": "temperature"})
     climate_state = hass.states.get("climate.office_fan_thermostat")
+    assert climate_state is not None
     assert climate_state.attributes.get("percentage") == 42
 
     # Temperature drops below the low setpoint: fans turn off, retrigger window starts
-    hass.states.async_set("sensor.office_temp", 65.0, {"device_class": "temperature"})
+    hass.states.async_set("sensor.office_temp", "65.0", {"device_class": "temperature"})
     climate_state = hass.states.get("climate.office_fan_thermostat")
+    assert climate_state is not None
     assert climate_state.attributes.get("percentage") is None
 
     # Temperature rises back above the low setpoint inside the retrigger window:
     # the fan must stay off
-    hass.states.async_set("sensor.office_temp", 75.0, {"device_class": "temperature"})
+    hass.states.async_set("sensor.office_temp", "75.0", {"device_class": "temperature"})
     await hass.async_block_till_done()
     climate_state = hass.states.get("climate.office_fan_thermostat")
+    assert climate_state is not None
     assert climate_state.attributes.get("percentage") is None
 
     # Retrigger window elapses (60s): the fan turns back on
     async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=61))
     await hass.async_block_till_done()
     climate_state = hass.states.get("climate.office_fan_thermostat")
+    assert climate_state is not None
     assert climate_state.attributes.get("percentage") == 42
 
 
@@ -875,9 +849,7 @@ async def test_restore_unavailable_state_does_not_crash(
     mock_config_entry: MockConfigEntry,
 ) -> None:
     """Test that an unavailable last state is restored as FAN_ONLY instead of crashing."""
-    mock_restore_cache(
-        hass, [State("climate.bedroom_fan_thermostat", "unavailable")]
-    )
+    mock_restore_cache(hass, [State("climate.bedroom_fan_thermostat", "unavailable")])
 
     await setup_integration(hass, mock_config_entry)
 
@@ -894,7 +866,9 @@ async def test_external_change_enters_manual_override(
 
     async def _handle_set_percentage(call):
         hass.states.async_set(
-            call.data["entity_id"], "on", {"percentage": call.data["percentage"]},
+            call.data["entity_id"],
+            "on",
+            {"percentage": call.data["percentage"]},
             context=call.context,
         )
 
@@ -903,14 +877,10 @@ async def test_external_change_enters_manual_override(
     await setup_integration(hass, mock_config_entry)
 
     # Temperature event: thermostat drives the fan itself (self-initiated)
-    hass.states.async_set(
-        "sensor.bedroom_temp", 85.0, {"device_class": "temperature"}
-    )
+    hass.states.async_set("sensor.bedroom_temp", "85.0", {"device_class": "temperature"})
     await hass.async_block_till_done()
 
-    switch_state = hass.states.get(
-        "switch.bedroom_fan_thermostat_manual_override"
-    )
+    switch_state = hass.states.get("switch.bedroom_fan_thermostat_manual_override")
     assert switch_state is not None
     # Self-initiated change must NOT trigger manual override
     assert switch_state.state == STATE_OFF
@@ -919,9 +889,8 @@ async def test_external_change_enters_manual_override(
     hass.states.async_set("fan.bedroom_fan", "off", {"percentage": 0})
     await hass.async_block_till_done()
 
-    switch_state = hass.states.get(
-        "switch.bedroom_fan_thermostat_manual_override"
-    )
+    switch_state = hass.states.get("switch.bedroom_fan_thermostat_manual_override")
+    assert switch_state is not None
     assert switch_state.state == STATE_ON
 
 
@@ -943,7 +912,9 @@ async def test_self_initiated_out_of_order_calls_do_not_enter_override(
     async def _handle_set_percentage(call):
         await hold.wait()
         hass.states.async_set(
-            call.data["entity_id"], "on", {"percentage": call.data["percentage"]},
+            call.data["entity_id"],
+            "on",
+            {"percentage": call.data["percentage"]},
             context=call.context,
         )
 
@@ -953,24 +924,19 @@ async def test_self_initiated_out_of_order_calls_do_not_enter_override(
 
     # First call: 85 -> 100%. The mock suspends, so the service call stays
     # in flight while the second control pass runs.
-    hass.states.async_set(
-        "sensor.bedroom_temp", 85.0, {"device_class": "temperature"}
-    )
+    hass.states.async_set("sensor.bedroom_temp", "85.0", {"device_class": "temperature"})
     # Second call: 75 -> 50% (between 72 and 78). The expectation for the
     # first call must survive this overwrite.
-    hass.states.async_set(
-        "sensor.bedroom_temp", 75.0, {"device_class": "temperature"}
-    )
+    hass.states.async_set("sensor.bedroom_temp", "75.0", {"device_class": "temperature"})
 
     hold.set()
     await hass.async_block_till_done()
 
     climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
     assert climate_state.attributes.get("percentage") == 50
 
-    switch_state = hass.states.get(
-        "switch.bedroom_fan_thermostat_manual_override"
-    )
+    switch_state = hass.states.get("switch.bedroom_fan_thermostat_manual_override")
     assert switch_state is not None
     # Both self-initiated changes must be ignored, never manual override
     assert switch_state.state == STATE_OFF
@@ -992,7 +958,9 @@ async def test_control_pass_shares_one_context_parented_to_triggering_event(
     async def _handle_set_percentage(call):
         call_context_ids.append(call.context.id)
         hass.states.async_set(
-            call.data["entity_id"], "on", {"percentage": call.data["percentage"]},
+            call.data["entity_id"],
+            "on",
+            {"percentage": call.data["percentage"]},
             context=call.context,
         )
 
@@ -1006,9 +974,7 @@ async def test_control_pass_shares_one_context_parented_to_triggering_event(
 
     hass.bus.async_listen(EVENT_STATE_CHANGED, _listener)
 
-    hass.states.async_set(
-        "sensor.bedroom_temp", 85.0, {"device_class": "temperature"}
-    )
+    hass.states.async_set("sensor.bedroom_temp", "85.0", {"device_class": "temperature"})
     await hass.async_block_till_done()
 
     assert sensor_context_ids
@@ -1043,7 +1009,9 @@ async def test_self_initiated_events_carry_pass_marker_context(
 
     async def _handle_set_percentage(call):
         hass.states.async_set(
-            call.data["entity_id"], "on", {"percentage": call.data["percentage"]},
+            call.data["entity_id"],
+            "on",
+            {"percentage": call.data["percentage"]},
             context=call.context,
         )
 
@@ -1057,9 +1025,7 @@ async def test_self_initiated_events_carry_pass_marker_context(
 
     hass.bus.async_listen(EVENT_STATE_CHANGED, _listener)
 
-    hass.states.async_set(
-        "sensor.bedroom_temp", 85.0, {"device_class": "temperature"}
-    )
+    hass.states.async_set("sensor.bedroom_temp", "85.0", {"device_class": "temperature"})
     await hass.async_block_till_done()
 
     assert event_contexts

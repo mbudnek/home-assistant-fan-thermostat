@@ -1,34 +1,27 @@
 """Config flow for the Fan Thermostat integration."""
 
 import logging
+import uuid
 from typing import Any
 
-import voluptuous as vol
-
+import probatio
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
-from homeassistant.const import EntityCategory
-from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.selector import (
     EntitySelector,
     EntitySelectorConfig,
+    Selector,
 )
 
 from .const import DOMAIN
-import uuid
 
 _LOGGER = logging.getLogger(__name__)
 
 
-def _create_entity_selector(
-    domain_filter: str | None = None,
-    entity_category_filter: EntityCategory | None = None,
-) -> EntitySelector:
-    """Create an entity selector with optional filters."""
-    config: dict[str, Any] = {"multiple": True}
+def _create_entity_selector(domain_filter: str | None = None) -> Selector[EntitySelectorConfig]:
+    """Create a multi-entity selector with an optional domain filter."""
+    config = EntitySelectorConfig(multiple=True)
     if domain_filter:
         config["domain"] = domain_filter
-    if entity_category_filter:
-        config["entity_category"] = entity_category_filter
     return EntitySelector(config)
 
 
@@ -37,21 +30,13 @@ class FanThermostatConfigFlow(ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
-    def __init__(self) -> None:
-        """Initialize the config flow."""
-        self._config_data: dict[str, Any] = {}
-
-    async def async_step_user(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
+    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Handle the initial step."""
         if user_input is None:
             return self.async_show_form(
                 step_id="user",
                 data_schema=self._get_schema(),
             )
-
-        self._config_data.update(user_input)
 
         # Validate inputs
         errors: dict[str, str] = {}
@@ -72,7 +57,7 @@ class FanThermostatConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors=errors,
             )
 
-        # Check for duplicate names among existing entries (FIXED from broken random UUID)
+        # Check for duplicate names among existing entries
         for existing_entry in self.hass.config_entries.async_entries(DOMAIN):
             if existing_entry.data.get("name") == user_input["name"]:
                 return self.async_abort(reason="already_configured")
@@ -86,24 +71,14 @@ class FanThermostatConfigFlow(ConfigFlow, domain=DOMAIN):
             data=user_input,
         )
 
-    def _get_schema(self) -> vol.Schema:
+    def _get_schema(self) -> probatio.Schema:
         """Get the default schema for the config flow."""
-        schema = vol.Schema(
+        return probatio.Schema(
             {
-                vol.Required("name"): str,
-                vol.Required("temperature_sensors"): _create_entity_selector(
-                    domain_filter="sensor"
-                ),
-                vol.Required("fan_controllers"): _create_entity_selector(
-                    domain_filter="fan"
-                ),
-                vol.Optional("motion_sensors"): _create_entity_selector(
-                    domain_filter="binary_sensor"
-                ),
-                vol.Optional("switches"): _create_entity_selector(
-                    domain_filter="switch"
-                ),
-
+                probatio.Required("name"): str,
+                probatio.Required("temperature_sensors"): _create_entity_selector("sensor"),
+                probatio.Required("fan_controllers"): _create_entity_selector("fan"),
+                probatio.Optional("motion_sensors"): _create_entity_selector("binary_sensor"),
+                probatio.Optional("switches"): _create_entity_selector("switch"),
             }
         )
-        return schema
