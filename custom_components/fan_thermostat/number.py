@@ -1,12 +1,12 @@
 """Number platform for Fan Thermostat configuration."""
 
-import logging
 from typing import Any
 
 from homeassistant.components.number import NumberEntity, NumberMode
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfTime
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
@@ -17,8 +17,6 @@ from .const import (
     DOMAIN,
 )
 from .controller import FanThermostatController
-
-_LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(
@@ -121,12 +119,12 @@ class FanThermostatNumberEntity(NumberEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         """Update the current value with bounds validation."""
-        # Validate against min/max values
+        # Validate against min/max values. The number service validates and
+        # clamps before calling this entity; this guard covers direct calls.
         if value < self._min_value or value > self._max_value:
-            _LOGGER.warning(
-                "Value %s for %s out of range [%d, %d]", value, self._key, int(self._min_value), int(self._max_value)
+            raise ServiceValidationError(
+                f"Value {value} for {self._key} out of range [{self._min_value}, {self._max_value}]"
             )
-            return
 
         new_data = {**self._config_entry.data}
         new_data[self._key] = int(value)

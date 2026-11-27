@@ -1,17 +1,14 @@
 """Select platform for the Fan Thermostat temperature aggregation."""
 
-import logging
-
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import DOMAIN
 from .controller import FanThermostatController
-
-_LOGGER = logging.getLogger(__name__)
 
 TEMPERATURE_OPERATION_OPTIONS = ["min", "max", "avg"]
 
@@ -58,9 +55,13 @@ class FanThermostatTemperatureOperation(SelectEntity):
 
     async def async_select_option(self, option: str) -> None:
         """Update the configured aggregation."""
+        # The select service validates the option before calling this entity;
+        # this guard covers direct calls.
         if option not in TEMPERATURE_OPERATION_OPTIONS:
-            _LOGGER.warning("Ignoring unknown temperature operation %s", option)
-            return
+            raise ServiceValidationError(
+                f"Unknown temperature operation {option!r} "
+                f"(expected one of: {', '.join(TEMPERATURE_OPERATION_OPTIONS)})"
+            )
 
         new_data = {**self._config_entry.data}
         new_data["temperature_operation"] = option
