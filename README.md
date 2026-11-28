@@ -39,7 +39,7 @@ You'll need to configure:
 
 - **Name**: A name for this thermostat instance (used as the device identifier)
 - **Temperature Sensors**: One or more temperature sensors (e.g., `sensor.bedroom_temp`). With more than one, use the **Temperature Operation** select entity to choose how they are combined: Minimum, Maximum (default), or Average
-- **Fan Controllers**: One or more fan entities to control (e.g., `fan.living_room_fan`)
+- **Fan Controllers** (optional): One or more fan entities to control (e.g., `fan.living_room_fan`). At least one of Fan Controllers or Switches is required
 - **Motion Sensors** (optional): Motion sensors to gate fan operation
 - **Switches** (optional): On/off switches to control alongside fans
 
