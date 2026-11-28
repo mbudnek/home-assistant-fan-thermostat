@@ -20,6 +20,7 @@ from typing import Any
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import Context, HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.restore_state import ExtraStoredData, RestoreEntity
@@ -81,6 +82,29 @@ async def async_setup_entry(
         name=name,
     )
     async_add_entities([entity])
+
+    # A disabled entity is never added, so async_added_to_hass never runs and
+    # the climate's first control pass would wait forever for the switch to
+    # become ready. The disabled switch holds no override state, so mark the
+    # controller ready right away.
+    if entity.unique_id is not None:
+        registry = er.async_get(hass)
+        entity_id = registry.async_get_entity_id("switch", DOMAIN, entity.unique_id)
+        if entity_id is not None:
+            registry_entry = registry.async_get(entity_id)
+            if registry_entry is not None and registry_entry.disabled:
+                controller = _get_controller(hass, config_entry.entry_id)
+                if controller is not None:
+                    controller.mark_switch_ready()
+
+
+def _get_controller(hass: HomeAssistant, entry_id: str) -> FanThermostatController | None:
+    """Return the shared controller for a config entry, if registered."""
+    data = hass.data.get(DOMAIN)
+    if not isinstance(data, dict):
+        return None
+    controller = data.get(entry_id)
+    return controller if isinstance(controller, FanThermostatController) else None
 
 
 class FanThermostatManualOverride(SwitchEntity, RestoreEntity):
@@ -298,10 +322,4 @@ class FanThermostatManualOverride(SwitchEntity, RestoreEntity):
 
     def _get_controller(self) -> FanThermostatController | None:
         """Return the shared controller for this config entry, if available."""
-        data = self.hass.data.get(DOMAIN)
-        if not isinstance(data, dict):
-            return None
-        controller = data.get(self._config_entry.entry_id)
-        if isinstance(controller, FanThermostatController):
-            return controller
-        return None
+        return _get_controller(self.hass, self._config_entry.entry_id)

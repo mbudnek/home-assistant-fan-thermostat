@@ -36,7 +36,7 @@ from pytest_homeassistant.common import (
     mock_restore_cache,
 )
 
-from custom_components.fan_thermostat.const import STARTUP_GRACE_SECONDS
+from custom_components.fan_thermostat.const import DOMAIN, STARTUP_GRACE_SECONDS
 
 from . import setup_integration
 
@@ -1343,4 +1343,40 @@ async def test_startup_pass_commands_fans_when_no_override_restored(
     hass.states.async_set("sensor.bedroom_temp", "85.0", {"device_class": "temperature"})
     await setup_integration(hass, mock_config_entry)
 
+    assert ("set_percentage", "fan.bedroom_fan", 100) in recorded
+
+
+async def test_startup_pass_runs_when_switch_is_disabled(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Test that the first control pass runs even when the override switch is disabled.
+
+    A disabled switch is never added, so async_added_to_hass never runs and
+    the switch never marks the controller ready. The climate's first control
+    pass must still run or the fans would never be commanded at startup.
+    """
+    recorded = []
+
+    async def _handle_set_percentage(call: ServiceCall) -> None:
+        recorded.append(("set_percentage", call.data.get("entity_id"), call.data.get("percentage")))
+
+    hass.services.async_register("fan", "set_percentage", _handle_set_percentage)
+
+    # Disable the override switch through the entity registry before the entry
+    # is set up, as a user would before a restart.
+    registry = er.async_get(hass)
+    registry.async_get_or_create(
+        "switch",
+        DOMAIN,
+        f"{mock_config_entry.unique_id}_override",
+        suggested_object_id="bedroom_fan_thermostat_manual_override",
+        disabled_by=er.RegistryEntryDisabler.USER,
+    )
+
+    # Temperature above the high setpoint: the pass commands full speed.
+    hass.states.async_set("sensor.bedroom_temp", "85.0", {"device_class": "temperature"})
+    await setup_integration(hass, mock_config_entry)
+
+    # The first control pass still ran with the disabled switch in place.
     assert ("set_percentage", "fan.bedroom_fan", 100) in recorded
