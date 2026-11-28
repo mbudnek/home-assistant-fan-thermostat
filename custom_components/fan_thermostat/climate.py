@@ -21,9 +21,11 @@ from homeassistant.core import (
     State,
     callback,
 )
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.event import async_call_later, async_track_state_change_event
 from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .const import (
     DEFAULT_MANUAL_OVERRIDE_TIME,
@@ -352,7 +354,13 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
             self.async_write_ha_state()
 
     def _compute_temperature(self) -> float | None:
-        """Compute the aggregated temperature from the current sensor states."""
+        """Compute the aggregated temperature from the current sensor states.
+
+        Sensor states report their own unit, so each value is converted to the
+        native unit (°F) before aggregation and comparison against the
+        configured setpoints. A sensor without a unit attribute is assumed to
+        report in the native unit.
+        """
         temperatures = []
         for sensor_id in self._temperature_sensor_ids:
             state = self.hass.states.get(sensor_id)
@@ -366,6 +374,19 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
                     except ValueError, TypeError:
                         pass
                 if temp is not None:
+                    sensor_unit = state.attributes.get("unit_of_measurement")
+                    if sensor_unit is not None and sensor_unit != self._attr_native_temperature_unit:
+                        try:
+                            temp = TemperatureConverter.convert(
+                                float(temp), sensor_unit, self._attr_native_temperature_unit
+                            )
+                        except HomeAssistantError:
+                            _LOGGER.warning(
+                                "Unrecognized temperature unit %s from %s; assuming %s",
+                                sensor_unit,
+                                sensor_id,
+                                self._attr_native_temperature_unit,
+                            )
                     temperatures.append(float(temp))
 
         if not temperatures:
