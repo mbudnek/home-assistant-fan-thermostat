@@ -1232,6 +1232,9 @@ async def test_set_temperature_rejects_degenerate_range(
 
     from custom_components.fan_thermostat.const import DOMAIN
 
+    # Seed the temperature sensor so the entity is available and the state
+    # attributes carry the target range.
+    hass.states.async_set("sensor.bedroom_temp", "74.0", {"device_class": "temperature"})
     await setup_integration(hass, mock_config_entry)
 
     controller = hass.data[DOMAIN][mock_config_entry.entry_id]
@@ -1243,6 +1246,15 @@ async def test_set_temperature_rejects_degenerate_range(
         await entity.async_set_temperature(target_temp_low=80.0)
 
     # The configured range is untouched: no half-applied state.
+    assert entity.native_target_temperature_low == 72.0
+    assert entity.native_target_temperature_high == 78.0
+
+    climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
+    assert climate_state.attributes["target_temp_low"] == 72.0
+    assert climate_state.attributes["target_temp_high"] == 78.0
+
+    # The stored range is unchanged as well.
     assert mock_config_entry.data["target_temp_low"] == 72.0
     assert mock_config_entry.data["target_temp_high"] == 78.0
 

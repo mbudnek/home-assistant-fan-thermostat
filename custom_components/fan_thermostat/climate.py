@@ -798,16 +798,21 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
         """Set the target temperature range."""
-        if (target_temp_low := kwargs.get("target_temp_low")) is not None:
-            self._target_temp_low = float(target_temp_low)
-        if (target_temp_high := kwargs.get("target_temp_high")) is not None:
-            self._target_temp_high = float(target_temp_high)
+        # Work on local copies first: the range is only applied (and persisted)
+        # once it is valid, so a rejected call leaves the entity untouched.
+        raw_low = kwargs.get("target_temp_low")
+        raw_high = kwargs.get("target_temp_high")
+        target_temp_low = float(raw_low) if raw_low is not None else self._target_temp_low
+        target_temp_high = float(raw_high) if raw_high is not None else self._target_temp_high
 
         # The range must stay ordered: the low setpoint must not exceed the
         # high. (The service handler validates the values passed with the
         # call; this guards a value against the one already configured.)
-        if self._target_temp_low > self._target_temp_high:
+        if target_temp_low > target_temp_high:
             raise ServiceValidationError("Invalid target temperature range: low setpoint must not exceed high setpoint")
+
+        self._target_temp_low = target_temp_low
+        self._target_temp_high = target_temp_high
 
         # Persist the range to the config entry so it survives restarts. The
         # constructor reads it back on setup; the state cache is not used for
