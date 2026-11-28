@@ -1,7 +1,12 @@
 """Standalone test fixtures for Fan Thermostat integration."""
 
-import os
-import sys
+from collections.abc import Iterator
+
+import pytest
+from fan_thermostat.const import DOMAIN
+from homeassistant.core import HomeAssistant
+from homeassistant.util.unit_system import IMPERIAL_SYSTEM
+from pytest_homeassistant.common import MockConfigEntry
 
 
 # Fail fast instead of hanging when asyncio's wakeup self-pipe is blocked.
@@ -55,22 +60,6 @@ if _self_pipe_send_blocked():
         return await _orig_shutdown_default_executor(self, timeout)
 
     asyncio.base_events.BaseEventLoop.shutdown_default_executor = _bounded_shutdown_default_executor
-
-
-# Add the custom component to the path so tests can import it
-custom_components_path = os.path.join(os.path.dirname(__file__), "..", "custom_components")
-if custom_components_path not in sys.path:
-    sys.path.insert(0, custom_components_path)
-
-from collections.abc import Iterator
-
-import pytest
-
-# Import from the custom component directly
-from fan_thermostat.const import DOMAIN
-from homeassistant.core import HomeAssistant
-from homeassistant.util.unit_system import IMPERIAL_SYSTEM
-from pytest_homeassistant.common import MockConfigEntry
 
 
 @pytest.fixture(autouse=True)

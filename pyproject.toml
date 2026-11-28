@@ -40,7 +40,7 @@ asyncio_mode = "auto"
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]
-pythonpath = ["."]
+pythonpath = [".", "custom_components"]
 ha_test_config_dir = "testing_config"
 addopts = "-p no:respx"
 timeout = 5
@@ -67,11 +67,6 @@ select = [
     "ANN201", # missing return type annotation for a public function
     "ANN202", # missing return type annotation for a private function
 ]
-
-[tool.ruff.lint.per-file-ignores]
-# Tests need to put `custom_components/` on sys.path before importing the
-# integration, which is only possible after the path manipulation code.
-"tests/conftest.py" = ["E402"]
 
 [tool.ty.environment]
 # No `python` pin here: ty resolves imports through whatever environment it
