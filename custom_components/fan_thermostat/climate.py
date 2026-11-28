@@ -136,10 +136,7 @@ class FanThermostatClimate(RestoreClimate):
         """Initialize the Fan Thermostat climate entity."""
         super().__init__()
         self._config_entry = config_entry
-        if config_entry.unique_id:
-            self._attr_unique_id = f"{config_entry.unique_id}_climate"
-        else:
-            self._attr_unique_id = f"{config_entry.entry_id}_climate"
+        self._attr_unique_id = f"{config_entry.unique_id}_climate"
         self._attr_device_info = get_device_info(config_entry, name)
 
         self._temperature_sensor_ids = temperature_sensor_ids
@@ -156,13 +153,11 @@ class FanThermostatClimate(RestoreClimate):
         self._retrigger_cancel: Callable[[], None] | None = None
         self._motion_cancel: Callable[[], None] | None = None
         self._startup_ignore_timer: Callable[[], None] | None = None
-        # Initial range, read from the config entry (a legacy artifact of
-        # earlier versions, which persisted the range there) and falling back
-        # to the defaults. The runtime range lives in the restore cache and is
-        # applied in async_added_to_hass when present - this is the fallback,
-        # not the source of truth.
-        self._target_temp_low: float = config_entry.data.get("target_temp_low", DEFAULT_TARGET_TEMP_LOW)
-        self._target_temp_high: float = config_entry.data.get("target_temp_high", DEFAULT_TARGET_TEMP_HIGH)
+        # Initial range: the defaults. The runtime range is restored from
+        # the restore cache in async_added_to_hass; the defaults are only the
+        # initial value used until then (and when there is nothing to restore).
+        self._target_temp_low: float = DEFAULT_TARGET_TEMP_LOW
+        self._target_temp_high: float = DEFAULT_TARGET_TEMP_HIGH
 
     @property
     def hvac_mode(self) -> HVACMode:
@@ -261,9 +256,8 @@ class FanThermostatClimate(RestoreClimate):
         # Restore the target temperature range from the restore cache. The
         # cache holds the runtime-updated values in native units (never the
         # display-rounded state attributes), so the setpoints survive
-        # restarts losslessly. The constructor's values from the config entry
-        # are only the initial range used when there is nothing usable to
-        # restore.
+        # restarts losslessly. The constructor's const defaults are only the
+        # initial range used when there is nothing usable to restore.
         if (climate_data := await self.async_get_last_climate_data(validate_range=True)) is not None:
             restored_low = climate_data.native_target_temperature_low
             restored_high = climate_data.native_target_temperature_high

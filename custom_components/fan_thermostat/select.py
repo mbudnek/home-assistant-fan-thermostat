@@ -38,8 +38,7 @@ class FanThermostatTemperatureOperation(SelectEntity):
     def __init__(self, config_entry: ConfigEntry) -> None:
         """Initialize the temperature operation select."""
         self._config_entry = config_entry
-        base_uid = config_entry.unique_id or config_entry.entry_id
-        self._attr_unique_id = f"{base_uid}_temperature_operation"
+        self._attr_unique_id = f"{config_entry.unique_id}_temperature_operation"
         self._attr_device_info = get_device_info(config_entry, config_entry.data.get("name", "Fan Thermostat"))
 
     @property

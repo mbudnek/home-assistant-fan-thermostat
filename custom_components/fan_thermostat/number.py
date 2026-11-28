@@ -81,9 +81,7 @@ class FanThermostatNumberEntity(NumberEntity):
         self._max_value = max_value
         self._step = step
 
-        # Use entry_id if unique_id is not set to ensure uniqueness
-        base_uid = config_entry.unique_id or config_entry.entry_id
-        self._attr_unique_id = f"{base_uid}_{self._key}"
+        self._attr_unique_id = f"{config_entry.unique_id}_{self._key}"
 
         # Use the device name (config entry title), not the entity name
         self._attr_device_info = get_device_info(config_entry, config_entry.data.get("name", "Fan Thermostat"))

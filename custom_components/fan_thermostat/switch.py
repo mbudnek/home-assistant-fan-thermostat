@@ -128,8 +128,7 @@ class FanThermostatManualOverride(SwitchEntity, RestoreEntity):
         """Initialize the manual override switch."""
         super().__init__()
         self._config_entry = config_entry
-        uid = config_entry.unique_id or config_entry.entry_id
-        self._attr_unique_id = f"{uid}_override"
+        self._attr_unique_id = f"{config_entry.unique_id}_override"
         self._attr_device_info = get_device_info(config_entry, name)
         self._is_on = False
         self._auto_clear_cancel: Callable[[], None] | None = None
@@ -174,48 +173,35 @@ class FanThermostatManualOverride(SwitchEntity, RestoreEntity):
         """Restore the manual override from the last state.
 
         If the switch was on at shutdown, restore the override and re-arm the
-        auto-clear timer. When a persisted end time is stored it is honored
-        exactly - the override is re-enabled with that same end time, so it
-        must not outlive the configured duration no matter how many restarts
-        happened in between. Only the time remaining at restart is re-armed
-        and an override that already expired while the instance was down is
-        not restored at all. If no end time was persisted (state stored by a
-        previous version), fall back to deriving the remaining time from the
-        last_changed time. The climate entity queries this switch's state for
-        its control passes, so it picks up the restored override automatically.
+        auto-clear timer. The persisted end time is honored exactly - the
+        override is re-enabled with that same end time, so it must not outlive
+        the configured duration no matter how many restarts happened in
+        between. Only the time remaining at restart is re-armed and an
+        override that already expired while the instance was down is not
+        restored at all. When no end time is persisted the auto-expiry is
+        disabled, so the override is restored without a timer. The climate
+        entity queries this switch's state for its control passes, so it
+        picks up the restored override automatically.
         """
         last_state = await self.async_get_last_state()
         if last_state is None or last_state.state != "on":
             return
 
         end = _stored_override_end(await self.async_get_last_extra_data())
-        if end is not None:
-            remaining = (end - datetime.now(UTC)).total_seconds()
-            if remaining <= 0:
-                # The override expired while the instance was down: do not
-                # restore it.
-                return
-            self._is_on = True
-            self._schedule_auto_clear(remaining, end=end)
-            self._notify_climate()
-            return
-
-        manual_override_time = self._manual_override_time
-        elapsed = self._elapsed_since_change(last_state)
-        remaining = manual_override_time - elapsed if elapsed is not None else None
-
-        if manual_override_time <= 0:
+        if end is None:
             # Auto-expiry disabled: restore the override without a timer.
             self._is_on = True
             self._notify_climate()
-        elif remaining is not None and remaining <= 0:
+            return
+
+        remaining = (end - datetime.now(UTC)).total_seconds()
+        if remaining <= 0:
             # The override expired while the instance was down: do not
             # restore it.
             return
-        else:
-            self._is_on = True
-            self._schedule_auto_clear(remaining if remaining is not None else manual_override_time)
-            self._notify_climate()
+        self._is_on = True
+        self._schedule_auto_clear(remaining, end=end)
+        self._notify_climate()
 
     async def async_will_remove_from_hass(self) -> None:
         """When entity will be removed from hass."""
@@ -283,18 +269,6 @@ class FanThermostatManualOverride(SwitchEntity, RestoreEntity):
             self._auto_clear_callback,
         )
         self._override_end = end if end is not None else datetime.now(UTC) + timedelta(seconds=duration)
-
-    def _elapsed_since_change(self, last_state: Any) -> float | None:
-        """Seconds elapsed since the last state change, or None if unknown."""
-        last_changed = last_state.last_changed
-        if last_changed is None:
-            return None
-        try:
-            if last_changed.tzinfo is None:
-                last_changed = last_changed.replace(tzinfo=UTC)
-            return (datetime.now(UTC) - last_changed).total_seconds()
-        except TypeError, ValueError:
-            return None
 
     def _reschedule_auto_clear(self) -> None:
         """Re-arm the auto-clear timer with the current time."""

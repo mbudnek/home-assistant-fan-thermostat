@@ -109,16 +109,17 @@ async def test_switch_restore_re_arms_remaining_time(
 
     from homeassistant.core import State
     from homeassistant.util import dt as dt_util
-    from pytest_homeassistant.common import async_fire_time_changed, mock_restore_cache
+    from pytest_homeassistant.common import async_fire_time_changed, mock_restore_cache_with_extra_data
 
-    # Override was turned on 240s before shutdown; manual_override_time is 300s.
-    mock_restore_cache(
+    # Override was turned on 240s before shutdown; manual_override_time is 300s,
+    # so the persisted end time is 60s from now.
+    end = dt_util.utcnow() + timedelta(seconds=60)
+    mock_restore_cache_with_extra_data(
         hass,
         [
-            State(
-                "switch.bedroom_fan_thermostat_manual_override",
-                "on",
-                last_changed=dt_util.utcnow() - timedelta(seconds=240),
+            (
+                State("switch.bedroom_fan_thermostat_manual_override", "on"),
+                {"override_end": end.isoformat()},
             )
         ],
     )
@@ -148,16 +149,16 @@ async def test_switch_restore_expired_override_not_restored(
 
     from homeassistant.core import State
     from homeassistant.util import dt as dt_util
-    from pytest_homeassistant.common import mock_restore_cache
+    from pytest_homeassistant.common import mock_restore_cache_with_extra_data
 
-    # Override was turned on 400s before shutdown; manual_override_time is 300s.
-    mock_restore_cache(
+    # The override's end time was 100s ago (it expired while the instance was down).
+    end = dt_util.utcnow() - timedelta(seconds=100)
+    mock_restore_cache_with_extra_data(
         hass,
         [
-            State(
-                "switch.bedroom_fan_thermostat_manual_override",
-                "on",
-                last_changed=dt_util.utcnow() - timedelta(seconds=400),
+            (
+                State("switch.bedroom_fan_thermostat_manual_override", "on"),
+                {"override_end": end.isoformat()},
             )
         ],
     )
@@ -195,11 +196,7 @@ async def test_switch_restore_no_expiry_restores_indefinitely(
     mock_restore_cache(
         hass,
         [
-            State(
-                "switch.no_expiry_manual_override",
-                "on",
-                last_changed=dt_util.utcnow() - timedelta(seconds=30),
-            )
+            State("switch.no_expiry_manual_override", "on"),
         ],
     )
 

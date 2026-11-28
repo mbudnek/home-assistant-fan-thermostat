@@ -264,14 +264,14 @@ async def test_multiple_temperature_sensors_max_by_default(
     """Test that multiple temperature sensors are combined with max by default."""
     await setup_integration(hass, mock_config_entry_multiple_sensors)
 
-    # Set two temperatures: 69 and 71 -> max 71 (above target_temp_low=70)
-    hass.states.async_set("sensor.living_room_temp_1", "69.0", {"device_class": "temperature"})
-    hass.states.async_set("sensor.living_room_temp_2", "71.0", {"device_class": "temperature"})
+    # Set two temperatures: 73 and 74 -> max 74 (above target_temp_low=72)
+    hass.states.async_set("sensor.living_room_temp_1", "73.0", {"device_class": "temperature"})
+    hass.states.async_set("sensor.living_room_temp_2", "74.0", {"device_class": "temperature"})
 
     climate_state = hass.states.get("climate.living_room_fan_thermostat")
     assert climate_state is not None
-    # Max is 71, target_low=70, target_high=78 (range=8) -> ((71-70)/8)*100 = 12.5 -> 12
-    assert climate_state.attributes.get("percentage") == 12
+    # Max is 74, target_low=72, target_high=78 (range=6) -> ((74-72)/6)*100 = 33.3 -> 33
+    assert climate_state.attributes.get("percentage") == 33
 
     # Now set to 74 and 78 -> max 78 (at target_high) -> 100%
     hass.states.async_set("sensor.living_room_temp_1", "74.0", {"device_class": "temperature"})
@@ -302,7 +302,7 @@ async def test_multiple_temperature_sensors_avg(
 
     climate_state = hass.states.get("climate.living_room_fan_thermostat")
     assert climate_state is not None
-    # Average is 70, which equals target_low, so fan should be off
+    # Average is 70, which is below target_low=72, so the fan is off
     assert climate_state.attributes.get("percentage") is None
 
     hass.states.async_set("sensor.living_room_temp_1", "74.0", {"device_class": "temperature"})
@@ -310,8 +310,8 @@ async def test_multiple_temperature_sensors_avg(
 
     climate_state = hass.states.get("climate.living_room_fan_thermostat")
     assert climate_state is not None
-    # Average is 76, target_low is 70, target_high is 78 (range=8) -> ((76-70)/8)*100 = 75%
-    assert climate_state.attributes.get("percentage") == 75
+    # Average is 76, target_low is 72, target_high is 78 (range=6) -> ((76-72)/6)*100 = 66.7 -> 67
+    assert climate_state.attributes.get("percentage") == 67
 
 
 async def test_multiple_temperature_sensors_min_and_select_entity(
@@ -334,7 +334,7 @@ async def test_multiple_temperature_sensors_min_and_select_entity(
     assert climate_state is not None
     assert climate_state.attributes.get("percentage") == 100
 
-    # Switch to min via the select entity -> 74 -> ((74-70)/8)*100 = 50%
+    # Switch to min via the select entity -> 74 -> ((74-72)/6)*100 = 33.3 -> 33
     await hass.services.async_call(
         "select",
         "select_option",
@@ -345,7 +345,7 @@ async def test_multiple_temperature_sensors_min_and_select_entity(
 
     climate_state = hass.states.get("climate.living_room_fan_thermostat")
     assert climate_state is not None
-    assert climate_state.attributes.get("percentage") == 50
+    assert climate_state.attributes.get("percentage") == 33
 
 
 async def test_motion_sensor_turns_fan_off(
@@ -871,11 +871,11 @@ async def test_retrigger_time_blocks_fan_restart_without_motion_sensors(
     """Test that retrigger time blocks a temperature-driven fan restart (no motion sensors)."""
     await setup_integration(hass, mock_config_entry_no_motion)
 
-    # Above the low setpoint: fan runs (75 -> (75-70)/(82-70) = ~42%)
+    # Above the low setpoint: fan runs (75 -> (75-72)/(78-72) = 50%)
     hass.states.async_set("sensor.office_temp", "75.0", {"device_class": "temperature"})
     climate_state = hass.states.get("climate.office_fan_thermostat")
     assert climate_state is not None
-    assert climate_state.attributes.get("percentage") == 42
+    assert climate_state.attributes.get("percentage") == 50
 
     # Temperature drops below the low setpoint: fans turn off, retrigger window starts
     hass.states.async_set("sensor.office_temp", "65.0", {"device_class": "temperature"})
@@ -896,7 +896,7 @@ async def test_retrigger_time_blocks_fan_restart_without_motion_sensors(
     await hass.async_block_till_done()
     climate_state = hass.states.get("climate.office_fan_thermostat")
     assert climate_state is not None
-    assert climate_state.attributes.get("percentage") == 42
+    assert climate_state.attributes.get("percentage") == 50
 
 
 async def test_restore_unavailable_state_does_not_crash(
@@ -1249,9 +1249,9 @@ async def test_set_temperature_persists_via_restore_cache(
     )
 
     # The range lives in the restore cache (native values), not the config
-    # entry: the initial values seeded in the fixture are left untouched.
-    assert mock_config_entry.data["target_temp_low"] == 72.0
-    assert mock_config_entry.data["target_temp_high"] == 78.0
+    # entry.
+    assert mock_config_entry.data.get("target_temp_low") is None
+    assert mock_config_entry.data.get("target_temp_high") is None
 
     controller = hass.data[DOMAIN][mock_config_entry.entry_id]
     entity = controller.climate
