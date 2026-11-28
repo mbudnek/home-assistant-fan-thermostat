@@ -2,6 +2,7 @@
 
 from datetime import timedelta
 
+import pytest
 from homeassistant.components.climate import (
     ATTR_HVAC_MODE,
     SERVICE_SET_HVAC_MODE,
@@ -1189,3 +1190,76 @@ async def test_external_change_links_override_switch_state_write_to_external_eve
     assert switch_state.context.id != external_context_id
     # ...and it is not a marker context (the event is not ours)
     assert not isinstance(switch_state.context, _ControlPassContext)
+
+
+async def test_celsius_sensor_converted_to_native(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """A sensor reporting in Celsius is converted to native Fahrenheit before use."""
+    from custom_components.fan_thermostat.const import DOMAIN
+
+    hass.states.async_set(
+        "sensor.bedroom_temp",
+        "23.3",
+        {"device_class": "temperature", "unit_of_measurement": "°C"},
+    )
+    await setup_integration(hass, mock_config_entry)
+
+    controller = hass.data[DOMAIN][mock_config_entry.entry_id]
+    entity = controller.climate
+    assert entity is not None
+    # 23.3°C is 73.94°F: the current temperature and fan physics must both see the native value
+    assert entity.native_current_temperature == pytest.approx(73.94, abs=0.1)
+
+    climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
+    # 73.94°F sits between 72-78°F native setpoints: ~32%, not a raw-23.3 reading
+    assert climate_state.attributes.get("percentage") == 32
+
+
+async def test_celsius_sensor_attribute_converted_to_native(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """A sensor exposing temperature via its attribute is also converted."""
+    from custom_components.fan_thermostat.const import DOMAIN
+
+    hass.states.async_set(
+        "sensor.bedroom_temp",
+        "24.5",
+        {"device_class": "temperature", "temperature": "24.5", "unit_of_measurement": "°C"},
+    )
+    await setup_integration(hass, mock_config_entry)
+
+    controller = hass.data[DOMAIN][mock_config_entry.entry_id]
+    entity = controller.climate
+    assert entity is not None
+    # 24.5°C is 76.1°F
+    assert entity.native_current_temperature == pytest.approx(76.1, abs=0.1)
+
+
+async def test_unknown_sensor_unit_assumed_native(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An unrecognized unit attribute logs a warning and is assumed native."""
+    import logging
+
+    from custom_components.fan_thermostat.const import DOMAIN
+
+    with caplog.at_level(logging.WARNING, logger="custom_components.fan_thermostat.climate"):
+        hass.states.async_set(
+            "sensor.bedroom_temp",
+            "23.3",
+            {"device_class": "temperature", "unit_of_measurement": "°bogus"},
+        )
+        await setup_integration(hass, mock_config_entry)
+
+    controller = hass.data[DOMAIN][mock_config_entry.entry_id]
+    entity = controller.climate
+    assert entity is not None
+    # The value is not converted (and logs a warning) - assumed native Fahrenheit
+    assert entity.native_current_temperature == pytest.approx(23.3)
+    assert "Unrecognized temperature unit" in caplog.text
