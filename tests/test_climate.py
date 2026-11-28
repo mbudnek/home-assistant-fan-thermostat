@@ -707,6 +707,35 @@ async def test_climate_entity_available(
     assert climate_state.state == "unavailable"
 
 
+async def test_climate_entity_available_unknown_state(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Test that the climate entity is unavailable when all inputs report unknown."""
+    # Report "unknown" states for the temperature sensor and the fan
+    hass.states.async_set("sensor.bedroom_temp", "unknown", {"device_class": "temperature"})
+    hass.states.async_set("fan.bedroom_fan", "unknown", {"supported_features": 1})
+
+    await setup_integration(hass, mock_config_entry)
+
+    climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
+    assert climate_state.state == "unavailable"
+
+
+async def test_climate_entity_available_never_reported(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Test that the climate entity is unavailable when inputs were never reported."""
+    # No states seeded: every configured input is referenced but never reported
+    await setup_integration(hass, mock_config_entry)
+
+    climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
+    assert climate_state.state == "unavailable"
+
+
 async def test_climate_hvac_action(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
