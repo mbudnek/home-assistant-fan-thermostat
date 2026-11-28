@@ -152,47 +152,6 @@ async def test_duplicate_name_abort(
     assert result2["reason"] == "already_configured"
 
 
-async def test_duplicate_name_abort_different_unique_id(
-    hass: HomeAssistant,
-) -> None:
-    """Test that a duplicate name is aborted even when the entry's unique ID differs from the name."""
-    # An entry created by an older version (or by another means) whose unique ID
-    # is not the name, but whose stored name matches.
-    existing = MockConfigEntry(
-        domain=DOMAIN,
-        title="Test Fan Thermostat",
-        data={
-            "name": "Test Fan Thermostat",
-            "temperature_sensors": ["sensor.test_temp"],
-            "fan_controllers": ["fan.test_fan"],
-            "motion_sensors": [],
-            "switches": [],
-        },
-        unique_id="0f1f2a0b-1234-5678-9abc-def012345678",
-    )
-    existing.add_to_hass(hass)
-
-    result: ConfigFlowResult = await hass.config_entries.flow.async_init(
-        DOMAIN,
-        context={"source": config_entries.SOURCE_USER},
-    )
-
-    result2 = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        {
-            "name": "Test Fan Thermostat",
-            "temperature_sensors": ["sensor.test_temp"],
-            "fan_controllers": ["fan.test_fan"],
-            "motion_sensors": [],
-            "switches": [],
-        },
-    )
-    await hass.async_block_till_done()
-
-    assert result2["type"] is FlowResultType.ABORT
-    assert result2["reason"] == "already_configured"
-
-
 async def test_no_temp_sensors_error(
     hass: HomeAssistant,
 ) -> None:

@@ -65,12 +65,6 @@ class FanThermostatConfigFlow(ConfigFlow, domain=DOMAIN):
         await self.async_set_unique_id(name)
         self._abort_if_unique_id_configured()
 
-        # Entries created before the name-as-unique-ID change have a different
-        # unique ID, so check existing entries by name explicitly.
-        for existing_entry in self.hass.config_entries.async_entries(DOMAIN):
-            if existing_entry.data.get("name") == name:
-                return self.async_abort(reason="already_configured")
-
         return self.async_create_entry(
             title=name,
             data={
