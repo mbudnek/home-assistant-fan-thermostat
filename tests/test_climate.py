@@ -1229,11 +1229,11 @@ async def test_external_change_links_override_switch_state_write_to_external_eve
     assert not isinstance(switch_state.context, _ControlPassContext)
 
 
-async def test_set_temperature_persists_to_config_entry(
+async def test_set_temperature_persists_via_restore_cache(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
 ) -> None:
-    """Test that setting the target temperature range is persisted to the config entry."""
+    """Test that setting the target temperature range is persisted for restore."""
     hass.states.async_set("sensor.bedroom_temp", "72.0", {"device_class": "temperature"})
     await setup_integration(hass, mock_config_entry)
 
@@ -1248,8 +1248,19 @@ async def test_set_temperature_persists_to_config_entry(
         blocking=True,
     )
 
-    assert mock_config_entry.data["target_temp_low"] == 70.0
-    assert mock_config_entry.data["target_temp_high"] == 80.0
+    # The range lives in the restore cache (native values), not the config
+    # entry: the initial values seeded in the fixture are left untouched.
+    assert mock_config_entry.data["target_temp_low"] == 72.0
+    assert mock_config_entry.data["target_temp_high"] == 78.0
+
+    controller = hass.data[DOMAIN][mock_config_entry.entry_id]
+    entity = controller.climate
+    assert entity is not None
+    extra_data = entity.extra_restore_state_data
+    assert extra_data is not None
+    stored = extra_data.as_dict()
+    assert stored["native_target_temperature_low"] == 70.0
+    assert stored["native_target_temperature_high"] == 80.0
 
 
 async def test_set_temperature_rejects_degenerate_range(
@@ -1284,8 +1295,53 @@ async def test_set_temperature_rejects_degenerate_range(
     assert climate_state.attributes["target_temp_high"] == 78.0
 
     # The stored range is unchanged as well.
-    assert mock_config_entry.data["target_temp_low"] == 72.0
-    assert mock_config_entry.data["target_temp_high"] == 78.0
+    extra_data = entity.extra_restore_state_data
+    assert extra_data is not None
+    stored = extra_data.as_dict()
+    assert stored["native_target_temperature_low"] == 72.0
+    assert stored["native_target_temperature_high"] == 78.0
+
+
+async def test_restored_target_range_from_cache(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Test that the target range is restored from the cache, not the config entry."""
+    from pytest_homeassistant.common import mock_restore_cache_with_extra_data
+
+    # The cache holds a fresher native range distinct from the config entry's
+    # initial 72/78; the state attributes carry the stale values.
+    mock_restore_cache_with_extra_data(
+        hass,
+        [
+            (
+                State(
+                    "climate.bedroom_fan_thermostat",
+                    "fan_only",
+                    attributes={
+                        "target_temp_low": 72.0,
+                        "target_temp_high": 78.0,
+                        "temperature_unit": "°F",
+                    },
+                ),
+                {
+                    "native_current_temperature": 74.0,
+                    "native_target_temperature": None,
+                    "native_target_temperature_high": 85.0,
+                    "native_target_temperature_low": 71.0,
+                    "native_temperature_unit": "°F",
+                },
+            )
+        ],
+    )
+
+    hass.states.async_set("sensor.bedroom_temp", "74.0", {"device_class": "temperature"})
+    await setup_integration(hass, mock_config_entry)
+
+    climate_state = hass.states.get("climate.bedroom_fan_thermostat")
+    assert climate_state is not None
+    assert climate_state.attributes["target_temp_low"] == 71.0
+    assert climate_state.attributes["target_temp_high"] == 85.0
 
 
 async def test_set_temperature_survives_reload(

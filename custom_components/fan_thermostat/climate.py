@@ -6,10 +6,10 @@ from datetime import datetime
 from typing import Any
 
 from homeassistant.components.climate import (
-    ClimateEntity,
     ClimateEntityFeature,
     HVACAction,
     HVACMode,
+    RestoreClimate,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import PRECISION_TENTHS, STATE_OFF, STATE_ON, UnitOfTemperature
@@ -24,7 +24,6 @@ from homeassistant.core import (
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.event import async_call_later, async_track_state_change_event
-from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import (
     DEFAULT_MANUAL_OVERRIDE_TIME,
@@ -77,7 +76,7 @@ async def async_setup_entry(
     async_add_entities([entity])
 
 
-class FanThermostatClimate(ClimateEntity, RestoreEntity):
+class FanThermostatClimate(RestoreClimate):
     """Representation of a Fan Thermostat climate entity.
 
     This entity acts as a thermostat that controls ceiling fan speed based on
@@ -157,6 +156,11 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
         self._retrigger_cancel: Callable[[], None] | None = None
         self._motion_cancel: Callable[[], None] | None = None
         self._startup_ignore_timer: Callable[[], None] | None = None
+        # Initial range, read from the config entry (a legacy artifact of
+        # earlier versions, which persisted the range there) and falling back
+        # to the defaults. The runtime range lives in the restore cache and is
+        # applied in async_added_to_hass when present - this is the fallback,
+        # not the source of truth.
         self._target_temp_low: float = config_entry.data.get("target_temp_low", DEFAULT_TARGET_TEMP_LOW)
         self._target_temp_high: float = config_entry.data.get("target_temp_high", DEFAULT_TARGET_TEMP_HIGH)
 
@@ -245,7 +249,7 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
         if controller is not None:
             controller.climate = self
 
-        # Restore last state
+        # Restore the HVAC mode
         last_state = await self.async_get_last_state()
         if last_state is not None:
             try:
@@ -253,12 +257,23 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
             except ValueError:
                 # Unavailable/unknown/invalid state at shutdown - fall back to FAN_ONLY
                 self._hvac_mode = HVACMode.FAN_ONLY
-            # Target temperatures are not restored from the state cache: the
-            # cache stores display-unit (hass-unit) values, not native
-            # Fahrenheit, so applying them would shift the setpoints on
-            # non-Fahrenheit instances. The range lives in the config entry
-            # (persisted by async_set_temperature) and is read from there at
-            # construction time.
+
+        # Restore the target temperature range from the restore cache. The
+        # cache holds the runtime-updated values in native units (never the
+        # display-rounded state attributes), so the setpoints survive
+        # restarts losslessly. The constructor's values from the config entry
+        # are only the initial range used when there is nothing usable to
+        # restore.
+        if (climate_data := await self.async_get_last_climate_data(validate_range=True)) is not None:
+            restored_low = climate_data.native_target_temperature_low
+            restored_high = climate_data.native_target_temperature_high
+            # Only adopt the cached pair when it forms a usable range: both
+            # values present and ordered. A partial or inconsistent pair
+            # (e.g. a hand-edited cache) leaves the constructor defaults in
+            # place rather than a broken or ambiguous range.
+            if restored_low is not None and restored_high is not None and restored_low <= restored_high:
+                self._target_temp_low = restored_low
+                self._target_temp_high = restored_high
 
         # Subscribe to temperature sensors
         for sensor_id in self._temperature_sensor_ids:
@@ -798,8 +813,8 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
         """Set the target temperature range."""
-        # Work on local copies first: the range is only applied (and persisted)
-        # once it is valid, so a rejected call leaves the entity untouched.
+        # Work on local copies first: the range is only applied once it is
+        # valid, so a rejected call leaves the entity untouched.
         raw_low = kwargs.get("target_temp_low")
         raw_high = kwargs.get("target_temp_high")
         target_temp_low = float(raw_low) if raw_low is not None else self._target_temp_low
@@ -814,17 +829,9 @@ class FanThermostatClimate(ClimateEntity, RestoreEntity):
         self._target_temp_low = target_temp_low
         self._target_temp_high = target_temp_high
 
-        # Persist the range to the config entry so it survives restarts. The
-        # constructor reads it back on setup; the state cache is not used for
-        # this (see async_added_to_hass).
-        self.hass.config_entries.async_update_entry(
-            self._config_entry,
-            data={
-                **self._config_entry.data,
-                "target_temp_low": self._target_temp_low,
-                "target_temp_high": self._target_temp_high,
-            },
-        )
+        # The range survives restarts automatically: the restore state
+        # machinery persists it (native values) in extra_restore_state_data
+        # and async_added_to_hass restores it on the next setup.
 
         # Temperature change affects fan speed, so recalculate. Service
         # calls set the entity's context to the caller's context; use it as
